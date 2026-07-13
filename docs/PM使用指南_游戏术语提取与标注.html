@@ -234,8 +234,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
         <tr><td class="t-key">工作目录</td><td>进入同时含 <span class="mono">run.bat</span>、<span class="mono">setup.bat</span>、<span class="mono">ui/</span>、<span class="mono">annotation/</span> 的项目根目录。本文 Agent 指令使用已核验路径：<span class="path">/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal</span>。</td></tr>
         <tr><td class="t-key">API / 模型</td><td>准备 OpenAI 兼容的 API Token、API Base URL 与可用模型名。Token 只在可信本机录入，不放进文档、截图或聊天。</td></tr>
         <tr><td class="t-key">Profile</td><td>确认对应游戏的 <span class="mono">profiles/*.yaml</span> 已存在，或准备可上传的 YAML。Profile 决定分类、提取与翻译规则。</td></tr>
-        <tr><td class="t-key">原文 xlsx</td><td>至少有一列待提取中文原文；建议同时保留稳定 Key / ID。双语模式还要有官方英文列。首行为表头。</td></tr>
-        <tr><td class="t-key">术语表 xlsx</td><td>至少有可指定的中文术语列和英文译文列，方向为中文 → 英文。没有历史术语时也要提供一份保留这两列表头的空 xlsx。</td></tr>
+        <tr><td class="t-key">原文 xlsx</td><td>至少有一列待提取中文原文；建议同时保留稳定 Key / ID。双语模式还要有官方英文列。<b>有效数据必须放在第一个工作表</b>，该表首行为表头。</td></tr>
+        <tr><td class="t-key">术语表 xlsx</td><td>第一个工作表至少有可指定的中文术语列和英文译文列，方向为中文 → 英文。主工具只载入<b>中文与英文同时非空</b>的行；任一列为空即跳过。没有历史术语时也要提供一份保留这两列表头的空 xlsx。</td></tr>
+        <tr><td class="t-key">工作表限制</td><td>主工具与标注工具都只读取每个工作簿的<b>第一个工作表</b>；后续工作表不会自动合并或作为回退。原文、已有术语、候选术语都要放在首表。</td></tr>
         <tr><td class="t-key">不变量</td><td>两个输入都必须是可读取的 <span class="mono">.xlsx</span>；列号在 CLI 中从 0 开始。主工具会清理占位符 / 标签，并跳过空值、纯标点与重复原文。</td></tr>
       </tbody>
     </table>
@@ -246,11 +247,11 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <table>
       <thead><tr><th>产物</th><th>分类</th><th>位置与用途</th></tr></thead>
       <tbody>
-        <tr><td class="t-key">候选术语标注表</td><td><span class="tag download">可下载</span></td><td>结果页下载名通常为 <span class="mono">[Profile]_[原文描述]_候选术语标注表_YYYYMMDD.xlsx</span>；无上下文时回退 <span class="mono">候选术语_模板.xlsx</span>。用于导入标注工具。</td></tr>
-        <tr><td class="t-key">原始结果</td><td><span class="tag download">可下载</span></td><td>当前 Session 下载名 <span class="mono">terms_extraction_results.xlsx</span>；本地运行目录另存 <span class="mono">results.xlsx</span>，用于追溯字段和匹配来源。</td></tr>
+        <tr><td class="t-key">候选术语标注表</td><td><span class="tag download">可下载</span></td><td>结果页下载名通常为 <span class="mono">[Profile]_[原文描述]_候选术语标注表_YYYYMMDD.xlsx</span>；无上下文时回退 <span class="mono">候选术语_模板.xlsx</span>。浏览器副本进入默认下载目录或浏览器提示的用户选择位置；项目内另存于 <span class="mono">output/run_*/</span>。历史页不能重新下载候选模板。</td></tr>
+        <tr><td class="t-key">原始结果</td><td><span class="tag download">可下载</span></td><td>当前 Session 下载名 <span class="mono">terms_extraction_results.xlsx</span>，进入浏览器默认下载目录或提示的用户选择位置；项目内 <span class="mono">output/run_*/results.xlsx</span> 是磁盘副本，用于追溯字段和匹配来源。</td></tr>
         <tr><td class="t-key">提取进度 / 图表 / 预览</td><td><span class="tag display">仅显示</span></td><td>Streamlit 页面中的数量、阶段、匹配分布、分类分布和表格预览；页面显示本身不是交付文件。</td></tr>
-        <tr><td class="t-key">标注工程</td><td><span class="tag download">可下载</span></td><td><span class="mono">term_project_*.json</span>，包含原文、术语库、分类与列配置；用于续作和交接。</td></tr>
-        <tr><td class="t-key">审定术语表</td><td><span class="tag download">可下载</span></td><td><span class="mono">术语表_*.xlsx</span>，标注工具正式 8 列导出；作为交付物及下一轮术语表输入。</td></tr>
+        <tr><td class="t-key">标注工程</td><td><span class="tag download">可下载</span></td><td><span class="mono">term_project_*.json</span>，包含原文、术语库、分类与列配置。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档后再续作或交接。</td></tr>
+        <tr><td class="t-key">审定术语表</td><td><span class="tag download">可下载</span></td><td><span class="mono">术语表_*.xlsx</span>，标注工具正式 8 列导出。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档，作为交付物及下一轮术语表输入。</td></tr>
         <tr><td class="t-key">断点</td><td><span class="tag temp">临时</span></td><td><span class="mono">output/_checkpoints/</span> 下的续跑状态与输入副本；UI 成功完成后清理，异常或取消后保留。</td></tr>
         <tr><td class="t-key">浏览器草稿</td><td><span class="tag internal">内部</span></td><td>浏览器本地存储中的术语草稿；只兜底术语，不含原文，也不是可交接文件。</td></tr>
         <tr><td class="t-key">缓存 / 调试 / 配置</td><td><span class="tag internal">内部</span></td><td><span class="mono">database/</span>、<span class="mono">raw_data/</span>、<span class="mono">.ui_config.json</span> 等。不要当交付物；配置文件含明文 API 信息时不得外发。</td></tr>
@@ -272,10 +273,10 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="step"><div class="s-body"><b>启动。</b><span class="mono">run.bat</span> 会切换到自身所在目录并启动 Streamlit。浏览器未自动打开时，查看终端显示的地址，通常为 <span class="mono">localhost:8501</span>。不要关闭承载服务的终端窗口。</div></div>
     <div class="step"><div class="s-body"><b>其他平台的技术入口。</b>在项目根目录、已有可用 Python 环境时，依次运行 <span class="mono">pip install -r requirements.txt</span> 与 <span class="mono">streamlit run ui/app.py</span>。这只是源码入口，其他平台未经过正式验证。</div></div>
     <div class="step"><div class="s-body"><b>配置。</b>进入「设置」，填写 <b>API Token</b> 与 <b>API 地址</b>，选择 / 添加模型；在「高级设置」选择或上传 Profile。侧栏点「测试 API 连接」。测试成功只证明模型列表接口可读，不等于所选聊天、翻译和 Embedding 能力都可用。</div></div>
-    <div class="step"><div class="s-body"><b>上传两份 xlsx。</b>在「运行」页分别上传「原文文件（xlsx）」与「术语表文件（xlsx）」。两个上传位都必填。</div></div>
+    <div class="step"><div class="s-body"><b>上传两份 xlsx。</b>在「运行」页分别上传「原文文件（xlsx）」与「术语表文件（xlsx）」。两个上传位都必填，有效数据必须在各自第一个工作表；术语表中英文任一为空的行不会载入。</div></div>
     <div class="step"><div class="s-body"><b>人工核对列。</b>确认「原文列」「Key列（可选）」「中文术语列」「英文翻译列」。有官方英文时开启「双语模式」并核对「原文英文列」；只提取不翻译时才开启「跳过翻译」。自动识别失败可能退回默认列，不能跳过这一步。</div></div>
     <div class="step"><div class="s-body"><b>开始提取。</b>确认页面摘要中的 Profile、模型和并发后点 <span class="ui green">开始提取</span>。阶段依次显示初始化、加载、LLM 术语提取、匹配与翻译、完成；运行中可取消，但在途 API 请求不保证立即停止。</div></div>
-    <div class="step"><div class="s-body"><b>下载并留档。</b>完成后先核对页面提取数量和预览，再到「结果」下载「标注模板 xlsx」与「原始结果 xlsx」。磁盘副本位于 <span class="mono">output/run_YYYYMMDD_HHMMSS/</span>。历史页只重新提供原始结果下载，因此候选模板应当轮立即保存。</div></div>
+    <div class="step"><div class="s-body"><b>下载并留档。</b>完成后先核对页面提取数量和预览，再到「结果」下载「标注模板 xlsx」与「原始结果 xlsx」。浏览器副本进入默认下载目录或提示的用户选择位置；项目磁盘副本位于 <span class="mono">output/run_YYYYMMDD_HHMMSS/</span>。历史页只重新提供原始结果下载，因此候选模板应当轮立即归档。</div></div>
     <div class="step"><div class="s-body"><b>断点续跑。</b>「运行」页会显示可续传文件及「所有断点」。有输入副本时直接点「继续」；旧断点没有输入时重新上传原文与术语表。恢复时保持原文、术语表、Profile、模型、列设置与模式不变；界面匹配主要依据原文内容和 Profile，不能据此推断其他配置也一致。</div></div>
   </div>
 
@@ -289,13 +290,13 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
   <h3 id="annotation">标注工具：两次导入、审核、保存、导出与回流</h3>
   <div class="steps">
     <div class="step"><div class="s-body"><b>打开。</b>双击 <span class="path">annotation/术语标注助手_v3.0.html</span>，建议用 Chrome 或 Edge。它的 Excel 解析库已内嵌，可离线处理；使用浏览器本地草稿时要保持同一浏览器与用户配置。</div></div>
-    <div class="step"><div class="s-body"><b>第一次导入：原文。</b>点 <span class="ui blue">📥 导入原文Excel</span>，选择本轮原文文件。核对工具栏里的 <b>Key列 / 原文列 / 译文列</b>；这一步让候选词能回看上下文，并在导出时回填首次出现行的 Key 与来源原文。</div></div>
-    <div class="step"><div class="s-body"><b>第二次导入：候选术语。</b>点 <span class="ui blue">📋 导入术语表</span>，选择主工具下载的候选表。导入只硬性要求「术语原文」列；其他已识别字段按表头读取。</div></div>
+    <div class="step"><div class="s-body"><b>第一次导入：原文。</b>点 <span class="ui blue">📥 导入原文Excel</span>，选择本轮原文文件。工具只读取第一个工作表；核对 <b>Key列 / 原文列 / 译文列</b>。从原文划词或整行新增时，工具记录实际添加行的 Key 与来源原文；只有来源字段缺失时，导出才尝试首个命中行回填。</div></div>
+    <div class="step"><div class="s-body"><b>第二次导入：候选术语。</b>点 <span class="ui blue">📋 导入术语表</span>，选择主工具下载的候选表。工具只读取第一个工作表；导入只硬性要求「术语原文」列，其他已识别字段按表头读取。导入后的非空 Key / 来源原文在导出时按原值保留。</div></div>
     <div class="step"><div class="s-body"><b>选择合并策略。</b>「跳过已有」保留本地修改；「仅补空白字段」只补当前空值，适合合并 AI 增量结果；「覆盖已有」会替换已有内容。日常增量优先选 <b>仅补空白字段</b>，覆盖前先保存工程 JSON。</div></div>
     <div class="step"><div class="s-body"><b>人工标注。</b>逐条核对术语是否应收、分类、译文、备注与来源。可在原文中划词按 <kbd>A</kbd>、点行首 ➕、按 <kbd>Q</kbd> 批量添加，或在右侧手动新增；用 <kbd>E</kbd> 编辑、<kbd>D</kbd> 删除。</div></div>
     <div class="step"><div class="s-body"><b>审核。</b>右侧 ✓ 在「未审核」与「已审核」间切换；黄 = 未审核，蓝 = 已审核，绿 = 译文在译文列命中。结合状态、分类、搜索和原文 / 译文筛选完成查漏。</div></div>
-    <div class="step"><div class="s-body"><b>保存现场。</b>按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 或点「保存项目」，下载 <span class="mono">term_project_*.json</span>。该工程含原文、术语、分类及列配置，可加载续作或交接。默认定时下载工程；浏览器每分钟草稿只兜底术语，不能代替正式保存。</div></div>
-    <div class="step"><div class="s-body"><b>导出审定表。</b>点「导出术语表 (8列模板)」，得到 <span class="mono">术语表_*.xlsx</span>。缺失 Key / 来源原文时，工具会尝试从所选原文列的首次命中行回填；原文中不存在的手工术语可保持空白。</div></div>
+    <div class="step"><div class="s-body"><b>保存现场。</b>按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 或点「保存项目」，下载 <span class="mono">term_project_*.json</span>。该工程含原文、术语、分类及列配置，可加载续作或交接。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；默认定时下载工程，浏览器每分钟草稿只兜底术语，不能代替人工归档。</div></div>
+    <div class="step"><div class="s-body"><b>导出审定表。</b>点「导出术语表 (8列模板)」，得到 <span class="mono">术语表_*.xlsx</span>。已有非空 Key / 来源按原值导出；只有缺失字段才从原始工作簿首个命中行回填。原文中不存在的手工术语可保持空白。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本，必须人工归档。</div></div>
     <div class="step"><div class="s-body"><b>回流。</b>下一轮把审定表上传到主工具的「术语表文件」。UI 会尝试自动识别「术语原文 / 术语译文」，仍须人工确认。CLI 使用该 8 列表时，中文列与英文列为 0 基索引 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>，不能沿用默认 0 / 1。</div></div>
   </div>
 
@@ -330,8 +331,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 1. 确认项目路径及 run.bat、setup.bat、cli.py、ui/app.py、requirements.txt 存在。
 2. 报告可用 Python 命令和版本，验证 requirements 中关键模块能否导入。
 3. 确认 profiles/[Profile 名].yaml 存在且 YAML 可解析。
-4. 打开两份 xlsx，报告工作表、数据行数、表头与建议的 0 基列索引；术语表必须有中英两列。
-5. 明确 Windows 为正式支持平台，其他平台只报告技术可运行性。
+4. 列出两份 xlsx 的全部工作表名，但只读取第一个工作表做业务检查；报告首表名称、数据行数、表头与建议的 0 基列索引。若有效数据不在首表，直接标 FAIL，不得用后续工作表替代。
+5. 对术语表首表分别计数：中英同时非空的有效行、仅中文为空、仅英文为空、两列都为空；明确后三类运行时会跳过。术语表必须有可索引的中英两列。
+6. 明确 Windows 为正式支持平台，其他平台只报告技术可运行性。
 失败报告：任一项失败立即标 FAIL，写明失败步骤、原始错误摘要、缺失文件 / 列及建议动作；不要为通过而修改预期。</code></pre>
   <p class="copy-note">输出是一份可留档的检查报告；没有发起任何计费 API 请求。</p>
 
@@ -380,10 +382,10 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
 3. 自动检查不能代替浏览器人工语义审核；无法验证的质量项必须标“待人工”。
 检查：
 1. 三份 xlsx 均可打开；主结果行数 = 候选表行数 = 提取完成数（如提供）。
-2. 候选表恰为 8 列，审核状态全为未审核，Key / 来源与主结果对应字段零差异。
+2. 候选表恰为 8 列，审核状态全为未审核；候选「Key值 / 来源原文」与主结果的 source_key / source_text 对应字段零差异。主结果 source_text 可能是清洗后的文本或双语拼接，不得强制等于原始单元格。
 3. 人工审定表列序为：Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间。
 4. 报告空术语、空译文、重复术语、未审核数量；发布门槛为未审核 0。
-5. 对能在原文找到的术语，核对来源原文与首次命中行 Key；原文不存在的手工术语单列为允许空来源候选，由 PM 确认。
+5. 分层核对人工审定表来源：候选导入后已有的非空 Key / 来源按原值保留；从原文划词或整行新增的来源对应实际添加行，且该行原文包含术语；只有原来源字段缺失时，导出值才对应原始工作簿首个命中行；原文不存在的手工术语允许空并单列给 PM 确认。明确选择“覆盖已有”或人工修订的例外必须有操作记录。
 6. 给出人工抽检样本清单，不虚构分类、译文风格或语义正确率。
 失败报告：任一硬门槛失败即结论 FAIL，逐行列出文件、工作表、行号 / 术语、期望与实际；不要把真实差异改写成通过。</code></pre>
   <p class="copy-note">验收报告是只读证据；人工审定仍在浏览器工具内完成。</p>
@@ -400,14 +402,16 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
     <table>
       <thead><tr><th>关口</th><th>检查方法</th><th>通过标准</th></tr></thead>
       <tbody>
-        <tr><td class="t-key">输入可用</td><td>打开原文与术语表，记录工作表、行数、表头和实际列索引。</td><td>两份 xlsx 都可读；原文列存在；术语中文 / 英文列存在。空术语表也保留两列表头。</td></tr>
+        <tr><td class="t-key">输入可用</td><td>列出原文与术语表的工作表，只检查首表；记录首表名、行数、表头和实际列索引，并统计术语中英列完整性。</td><td>两份 xlsx 都可读，有效数据都在首表；原文列存在；术语中文 / 英文列存在。术语有效行 = 中英同时非空行，任一为空的跳过数已报告；空术语表也保留两列表头。</td></tr>
         <tr><td class="t-key">主工具数量</td><td>比较完成页数量、<span class="mono">results.xlsx</span> 数据行和候选表数据行。</td><td>三者数量完全相等；差异数 = 0。</td></tr>
         <tr><td class="t-key">主工具文件</td><td>检查本轮输出目录与下载留档。</td><td>原始结果和候选模板各 1 份，均可打开；候选表初始「未审核」数 = 总行数。</td></tr>
-        <tr><td class="t-key">候选字段</td><td>按当前主工具契约检查 8 列及映射。</td><td>列名 / 顺序与本指南“主工具候选表字段”一致；Key、分类、术语、译文、来源原文与主结果差异数 = 0。</td></tr>
+        <tr><td class="t-key">候选字段</td><td>按当前主工具契约检查 8 列及映射。</td><td>列名 / 顺序与本指南“主工具候选表字段”一致；候选 Key / 来源原文与主结果 source_key / source_text 差异数 = 0。source_text 可为清洗文本或双语拼接，不要求等于原始单元格。</td></tr>
         <tr><td class="t-key">导入数量</td><td>在空白标注项目导入候选表，记录新增 / 更新 / 跳过和右侧术语总数。</td><td>术语总数 = 候选表非空「术语原文」去重数。若合并旧工程，则用“旧总数 + 新增数”核对并解释更新 / 跳过。</td></tr>
         <tr><td class="t-key">正式 8 列</td><td>打开 <span class="mono">术语表_*.xlsx</span> 的「术语表」工作表。</td><td>恰好 8 列，顺序如下；数据行数 = 标注工具术语总数。</td></tr>
         <tr><td class="t-key">审核状态</td><td>按「审核状态」计数。</td><td>发布版「未审核」= 0；状态空白或非“已审核 / 未审核”= 0。</td></tr>
-        <tr><td class="t-key">Key / 来源</td><td>把术语回查所选原文列的首次命中行。</td><td>可命中术语的 Key 与来源差异数 = 0；原文不存在的手工术语可空，但全部进入例外清单并由 PM 确认。</td></tr>
+        <tr><td class="t-key">导入来源保留</td><td>比较候选表与人工审定表的非空 Key / 来源字段。</td><td>导入后非空值按原值保留；「仅补空白字段」不得覆盖本地已有非空来源。明确选择「覆盖已有」或人工修订的差异必须有操作记录。</td></tr>
+        <tr><td class="t-key">表内新增来源</td><td>按操作记录回查划词 / 整行新增时的实际添加行。</td><td>Key 与来源对应实际添加行，且该行所选原文列包含术语；不强制要求它是首个命中行。</td></tr>
+        <tr><td class="t-key">缺失回填 / 表外手工</td><td>只检查导出前缺失的 Key 或来源字段，并区分原文是否存在术语。</td><td>仅缺失字段按原始工作簿首个命中行回填，已有字段不改；原文不存在的手工术语允许空，但全部进入例外清单并由 PM 确认。</td></tr>
         <tr><td class="t-key">回流</td><td>把审定表上传到主工具，仅核对自动识别与手动列选择。</td><td>UI 正确选中「术语原文 / 术语译文」；CLI 明确使用 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>。</td></tr>
         <tr><td class="t-key">人工语义</td><td>全查高风险项（空译文、来源缺失、专名）并抽检 <span class="mono">min(总数, max(20, 向上取整(总数×10%)))</span> 条。</td><td>术语边界、分类、译文风格和上下文无严重错误；发现的问题有责任人和修订记录。</td></tr>
       </tbody>
