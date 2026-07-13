@@ -1,5 +1,6 @@
 from html.parser import HTMLParser
 from pathlib import Path
+import os
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,8 +67,10 @@ class GuideParser(HTMLParser):
             if not self_closing:
                 self._section_depth += 1
         for key in RESOURCE_ATTRIBUTES.get(tag, ()):
-            value = data.get(key, "")
-            if value and not value.startswith(("data:", "#")):
+            value = (data.get(key) or "").strip()
+            if key == "srcset" and value:
+                self.external.append(f"{tag}[{key}] is not allowed")
+            elif value and not value.startswith(("data:", "#")):
                 self.external.append(f"{tag}[{key}]={value}")
         inline_style = data.get("style", "")
         if inline_style:
@@ -174,7 +177,8 @@ def main():
         "Key值", "术语分类", "术语原文", "术语译文", "备注",
         "来源原文", "审核状态", "最新修订时间",
     ]
-    column_pattern = r"\s*".join(re.escape(column) for column in columns)
+    column_separator = r"\s*(?:[/·]\s*)?"
+    column_pattern = column_separator.join(re.escape(column) for column in columns)
     require(re.search(column_pattern, body_text), f"column order: {' / '.join(columns)}")
     require(re.search(r"游戏术语提取.*标注", title_text), f"guide title: {title_text}")
     require(not (ROOT / "docs" / "DEPLOY.txt").exists(), "docs/DEPLOY.txt must be retired")
@@ -182,12 +186,18 @@ def main():
     optional_readme = ROOT / "README_ZH.md"
     if optional_readme.exists():
         readmes.append(optional_readme)
-    for readme in readmes:
+    else:
         require(
-            "docs/PM使用指南_游戏术语提取与标注.html"
-            in readme.read_text(encoding="utf-8-sig"),
+            os.environ.get("REQUIRE_README_ZH") != "1",
+            "README_ZH.md is required when REQUIRE_README_ZH=1",
+        )
+    for readme in readmes:
+        content = readme.read_text(encoding="utf-8-sig")
+        require(
+            "docs/PM使用指南_游戏术语提取与标注.html" in content,
             f"missing guide link: {readme}",
         )
+        require("docs/DEPLOY.md" not in content, f"stale deployment link: {readme}")
 
 
 if __name__ == "__main__":

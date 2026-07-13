@@ -17,6 +17,7 @@
 - Preserve existing uncommitted work; use targeted edits and never stage unrelated README/UI changes.
 - No external fonts, scripts, images, or network resources.
 - Final columns, in order: `Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间`.
+- `README_ZH.md` is a user-untracked file in the original repository: isolated branches check it only when present; final verification in the original repository must run with `REQUIRE_README_ZH=1`.
 - Delete `docs/DEPLOY.txt` only after the replacement guide passes content checks.
 
 ---
@@ -227,7 +228,7 @@ Check header/logo, section order, navigation, table overflow, prompt wrapping, c
 
 - [ ] **Step 3: Re-run verification**
 
-Run: `python scripts/test_pm_usage_guide.py` and `git diff --check`.
+Run: `REQUIRE_README_ZH=1 python3 scripts/test_pm_usage_guide.py` and `git diff --check`.
 
 Expected: test passes and diff check is clean.
 
