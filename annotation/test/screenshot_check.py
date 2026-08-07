@@ -6,7 +6,8 @@ import pathlib
 from openpyxl import Workbook
 from playwright.sync_api import sync_playwright
 
-HTML = "/Users/spellbook/Desktop/Langlobal/AI Lab/Game-Terms-Extraction-Langlobal/annotation/术语标注助手_v3.0.html"
+ANNOTATION_DIR = pathlib.Path(__file__).resolve().parents[1]
+HTML = ANNOTATION_DIR / "术语标注助手_v3.0.html"
 OUT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -35,7 +36,7 @@ def add_term(page, t):
 
 def main():
     xlsx = make_xlsx()
-    url = pathlib.Path(HTML).as_uri()
+    url = HTML.as_uri()
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
         page = b.new_page(viewport={"width": 1500, "height": 950})

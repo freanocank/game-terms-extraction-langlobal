@@ -9,13 +9,12 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 
-_DATA = Path("/Users/spellbook/Desktop/Langlobal/杂项文档")
 ap = argparse.ArgumentParser(description="咻咻勇者输入预处理")
-ap.add_argument("--art", type=Path, default=_DATA / "台服美术字统计_F列简中译英.xlsx",
+ap.add_argument("--art", type=Path, required=True,
                 help="美术字统计 xlsx")
-ap.add_argument("--lang", type=Path, default=_DATA / "LanguageDesc.xlsx",
+ap.add_argument("--lang", type=Path, required=True,
                 help="LanguageDesc xlsx")
-ap.add_argument("--out", type=Path, default=_DATA / "xiuxiu_prep",
+ap.add_argument("--out", type=Path, default=Path.cwd() / "xiuxiu_prep",
                 help="产物输出目录")
 args = ap.parse_args()
 
