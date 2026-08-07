@@ -9,10 +9,21 @@ import shutil
 import sqlite3
 import threading
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import List, Callable
 import logging
 
+from config_template import (
+    DEFAULT_API_BASE,
+    DEFAULT_CONCURRENT,
+    DEFAULT_DETECT_MODEL,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBED_WORKERS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL,
+    DEFAULT_NER_MODEL,
+    DEFAULT_PROFILE,
+)
 from core.checkpoint import load as ckpt_load, load_meta as load_ckpt_meta, checkpoint_dir_name
 
 ROOT = Path(__file__).parent.parent
@@ -24,30 +35,87 @@ ROOT = Path(__file__).parent.parent
 
 @dataclass
 class RunConfig:
-    api_key: str = ""
-    api_base: str = "https://api.vectorengine.ai/v1"
-    model: str = "gemini-3.1-flash-lite"
-    profile: str = "yanyun"
-    max_concurrent: int = 20
-    embed_workers: int = 32
-    max_tokens: int = 65536
+    api_key: str = field(default="", repr=False)
+    api_base: str = DEFAULT_API_BASE
+    model: str = DEFAULT_MODEL
+    ner_use_main: bool = True
+    ner_api_key: str = field(default="", repr=False)
+    ner_api_base: str = DEFAULT_API_BASE
+    ner_model: str = DEFAULT_NER_MODEL
+    embedding_use_main: bool = True
+    embedding_api_key: str = field(default="", repr=False)
+    embedding_api_base: str = DEFAULT_API_BASE
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    detect_use_main: bool = True
+    detect_api_key: str = field(default="", repr=False)
+    detect_api_base: str = DEFAULT_API_BASE
+    detect_model: str = DEFAULT_DETECT_MODEL
+    profile: str = DEFAULT_PROFILE
+    max_concurrent: int = DEFAULT_CONCURRENT
+    embed_workers: int = DEFAULT_EMBED_WORKERS
+    max_tokens: int = DEFAULT_MAX_TOKENS
     bilingual: bool = False
     no_translate: bool = False
+    flag_unsourced: bool = True
+
+
+@dataclass(frozen=True)
+class ServiceSettings:
+    api_key: str = field(default="", repr=False)
+    api_base: str = ""
+    model: str = ""
+
+
+SERVICE_LABELS = {
+    "main": "主生成服务",
+    "ner": "人名/地名预识别（NER）服务",
+    "embedding": "术语相似度匹配（Embedding）服务",
+    "detect": "表头识别服务",
+}
+
+
+PERSISTED_CONFIG_FIELDS = (
+    "api_base", "model", "profile",
+    "ner_use_main", "ner_api_base", "ner_model",
+    "embedding_use_main", "embedding_api_base", "embedding_model",
+    "detect_use_main", "detect_api_base", "detect_model",
+)
+
+
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def default_config() -> RunConfig:
-    cfg = RunConfig()
-    cfg.api_key = os.getenv("OPENAI_API_KEY", "")
-    try:
-        import config_template as tpl
-        cfg.api_base = tpl.DEFAULT_API_BASE
-        cfg.model = tpl.DEFAULT_MODEL
-        cfg.profile = tpl.DEFAULT_PROFILE
-        cfg.max_concurrent = tpl.DEFAULT_CONCURRENT
-        cfg.embed_workers = getattr(tpl, 'DEFAULT_EMBED_WORKERS', 16)
-        cfg.max_tokens = tpl.DEFAULT_MAX_TOKENS
-    except ImportError:
-        pass
+    ner_key = _first_env("NER_API_KEY")
+    ner_base = _first_env("NER_API_BASE", "NER_BASE_URL")
+    embedding_key = _first_env("EMBEDDING_API_KEY", "EMBED_API_KEY")
+    embedding_base = _first_env(
+        "EMBEDDING_API_BASE", "EMBEDDING_BASE_URL", "EMBED_API_BASE", "EMBED_BASE_URL"
+    )
+    detect_key = _first_env("DETECT_API_KEY")
+    detect_base = _first_env("DETECT_API_BASE", "DETECT_BASE_URL")
+    cfg = RunConfig(
+        api_key=_first_env("OPENAI_API_KEY"),
+        api_base=_first_env("OPENAI_API_BASE", "OPENAI_BASE_URL") or DEFAULT_API_BASE,
+        model=_first_env("OPENAI_MODEL") or DEFAULT_MODEL,
+        ner_use_main=not bool(ner_key or ner_base),
+        ner_api_key=ner_key,
+        ner_api_base=ner_base or DEFAULT_API_BASE,
+        ner_model=_first_env("NER_MODEL") or DEFAULT_NER_MODEL,
+        embedding_use_main=not bool(embedding_key or embedding_base),
+        embedding_api_key=embedding_key,
+        embedding_api_base=embedding_base or DEFAULT_API_BASE,
+        embedding_model=_first_env("EMBEDDING_MODEL", "EMBED_MODEL") or DEFAULT_EMBEDDING_MODEL,
+        detect_use_main=not bool(detect_key or detect_base),
+        detect_api_key=detect_key,
+        detect_api_base=detect_base or DEFAULT_API_BASE,
+        detect_model=_first_env("DETECT_MODEL") or DEFAULT_DETECT_MODEL,
+    )
     _load_persisted_config(cfg)
     return cfg
 
@@ -56,14 +124,12 @@ def _load_persisted_config(cfg: RunConfig):
     if CONFIG_FILE.exists():
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            if data.get("api_key"):
-                cfg.api_key = data["api_key"]
-            if data.get("model"):
-                cfg.model = data["model"]
-            if data.get("profile"):
-                cfg.profile = data["profile"]
-            if data.get("api_base"):
-                cfg.api_base = data["api_base"]
+            for name in PERSISTED_CONFIG_FIELDS:
+                if name in data and data[name] not in (None, ""):
+                    setattr(cfg, name, data[name])
+            if any("key" in name.lower() or "token" in name.lower() or "secret" in name.lower()
+                   for name in data):
+                save_persisted_config(cfg)
         except Exception:
             pass
 
@@ -94,13 +160,27 @@ def clear_checkpoint(file_bytes: bytes, profile: str):
 
 
 def save_persisted_config(cfg: RunConfig):
-    data = {
-        "api_key": cfg.api_key,
-        "model": cfg.model,
-        "profile": cfg.profile,
-        "api_base": cfg.api_base,
-    }
-    CONFIG_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    data = {name: getattr(cfg, name) for name in PERSISTED_CONFIG_FIELDS}
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
+    temp_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    try:
+        temp_file.chmod(0o600)
+    except OSError:
+        pass
+    temp_file.replace(CONFIG_FILE)
+
+
+def resolve_service_settings(cfg: RunConfig, service: str) -> ServiceSettings:
+    if service == "main":
+        return ServiceSettings(cfg.api_key.strip(), cfg.api_base.strip(), cfg.model.strip())
+    if service not in {"ner", "embedding", "detect"}:
+        raise ValueError(f"未知 API 服务：{service}")
+    use_main = bool(getattr(cfg, f"{service}_use_main"))
+    api_key = cfg.api_key if use_main else (getattr(cfg, f"{service}_api_key") or cfg.api_key)
+    api_base = cfg.api_base if use_main else (getattr(cfg, f"{service}_api_base") or cfg.api_base)
+    model = getattr(cfg, f"{service}_model") or cfg.model
+    return ServiceSettings(api_key.strip(), api_base.strip(), model.strip())
 
 
 # ═══════════════════════════════════════════════════════════
@@ -151,6 +231,16 @@ def add_custom_model(name: str):
     if name in data["disabled_presets"]:
         data["disabled_presets"].remove(name)
     _save_model_data(data)
+
+
+def add_model_and_select(cfg: RunConfig, name: str) -> str:
+    name = name.strip()
+    if not name:
+        return ""
+    add_custom_model(name)
+    cfg.model = name
+    save_persisted_config(cfg)
+    return name
 
 
 def remove_model(name: str):
@@ -240,7 +330,6 @@ extract_examples:
 #   - "时间词/节气，如：子时、昨夜、春分"
 #   - "通用场所（无专名），如：书房、医馆、夜市、渡口"
 #   - "通用原材料，如：柴火、石灰、石炭、芸香"
-extract_examples:
   exclude:
     - ""  # 在此填写
 
@@ -393,14 +482,38 @@ def embed_db_term_count() -> int:
         return 0
 
 
-def test_api_connection(cfg: RunConfig) -> tuple:
+def test_api_connection(cfg: RunConfig, service: str = "main") -> tuple:
+    settings = resolve_service_settings(cfg, service)
+    label = SERVICE_LABELS.get(service, service)
+    if not settings.api_key:
+        return False, f"{label}缺少 API 密钥"
+    if not settings.api_base:
+        return False, f"{label}缺少 API 服务地址"
+    if not settings.model:
+        return False, f"{label}缺少模型 ID"
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=cfg.api_key, base_url=cfg.api_base, timeout=30)
-        resp = client.models.list()
-        return True, f"Connected — {len(resp.data)} models available"
+        client = OpenAI(api_key=settings.api_key, base_url=settings.api_base, timeout=30)
+        if service == "embedding":
+            response = client.embeddings.create(model=settings.model, input=["连接测试"])
+            if not getattr(response, "data", None):
+                raise RuntimeError("服务未返回向量数据")
+        else:
+            client.chat.completions.create(
+                model=settings.model,
+                messages=[{"role": "user", "content": "只回复 OK"}],
+                temperature=0,
+                max_tokens=8,
+            )
+        return True, f"{label}连接成功（{settings.model}）"
     except Exception as e:
-        return False, str(e)
+        message = str(e)
+        for secret in (
+            cfg.api_key, cfg.ner_api_key, cfg.embedding_api_key, cfg.detect_api_key,
+        ):
+            if secret:
+                message = message.replace(secret, "***")
+        return False, f"{label}连接失败：{message}"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -421,7 +534,9 @@ class ProcessingTask:
         self.error: str | None = None
         self.info: str = ""
         self.output_dir: str = ""
+        self.output_files: tuple[str, str] | None = None
         self.source_path: str = ""
+        self.run_config: RunConfig | None = None
         self._stop = threading.Event()
         self._cancelling = False
         self._thread: threading.Thread | None = None
@@ -436,21 +551,26 @@ class ProcessingTask:
 
     def start(self, source_path: str, glossary_path: str, cfg: RunConfig,
               on_done: Callable = None, src_col: int = 0, gl_cn_col: int = 0, gl_en_col: int = 1,
-              src_en_col: int = 1, src_bytes: bytes = b"", key_col: int = None):
+              src_en_col: int = 1, src_bytes: bytes = b"", key_col: int = None,
+              checkpoint_dir: str = ""):
+        cfg_snapshot = replace(cfg)
         self.done = False
         self.error = None
         self.results = []
         self.info = ""
         self.output_dir = ""
+        self.output_files = None
         self.source_path = source_path
+        self.run_config = cfg_snapshot
         self.stage = "starting"
         self.stage_done = 0
         self.stage_total = 1
         self._cancelling = False
         self._stop.clear()
         self._thread = threading.Thread(
-            target=self._run, args=(source_path, glossary_path, cfg, on_done,
-                                     src_col, gl_cn_col, gl_en_col, src_en_col, src_bytes, key_col), daemon=True
+            target=self._run, args=(source_path, glossary_path, cfg_snapshot, on_done,
+                                     src_col, gl_cn_col, gl_en_col, src_en_col, src_bytes, key_col,
+                                     checkpoint_dir), daemon=True
         )
         self._thread.start()
 
@@ -464,10 +584,10 @@ class ProcessingTask:
 
     def _run(self, source_path: str, glossary_path: str, cfg: RunConfig, on_done,
              src_col: int = 0, gl_cn_col: int = 0, gl_en_col: int = 1, src_en_col: int = 1,
-             src_bytes: bytes = b"", key_col: int = None):
+             src_bytes: bytes = b"", key_col: int = None, checkpoint_dir: str = ""):
         try:
             import time as _time
-            from core.main import run_pipeline, PipelineOpts
+            from core.main import run_pipeline, PipelineOpts, save_outputs
             from core.checkpoint import clear as ckpt_clear
 
             ts = _time.strftime("%Y%m%d_%H%M%S")
@@ -477,9 +597,11 @@ class ProcessingTask:
 
             ckpt_root = ROOT / "output" / "_checkpoints"
             ckpt_root.mkdir(parents=True, exist_ok=True)
-            ckpt_dir = str(ckpt_root / checkpoint_dir_name(src_bytes, cfg.profile))
+            ckpt_dir = checkpoint_dir or str(ckpt_root / checkpoint_dir_name(src_bytes, cfg.profile))
             Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
 
+            ner_service = resolve_service_settings(cfg, "ner")
+            embedding_service = resolve_service_settings(cfg, "embedding")
             opts = PipelineOpts(
                 bilingual=cfg.bilingual, no_translate=cfg.no_translate,
                 src_col=src_col, src_en_col=src_en_col, key_col=key_col,
@@ -487,21 +609,36 @@ class ProcessingTask:
                 embed_workers=cfg.embed_workers,
                 max_concurrent=cfg.max_concurrent,
                 max_tokens=cfg.max_tokens,
+                flag_unsourced=cfg.flag_unsourced,
+                ner_use_main=cfg.ner_use_main,
+                ner_api_key=ner_service.api_key,
+                ner_base_url=ner_service.api_base,
+                ner_model=ner_service.model,
+                embedding_use_main=cfg.embedding_use_main,
+                embedding_api_key=embedding_service.api_key,
+                embedding_base_url=embedding_service.api_base,
+                embedding_model=embedding_service.model,
             )
             results = run_pipeline(
                 source_path, glossary_path, cfg.profile,
                 cfg.api_key, cfg.api_base, cfg.model,
-                output_dir=str(out_dir),
+                output_dir=str(out_dir), raw_dir=str(out_dir / "raw_data"),
                 progress_callback=self._progress,
                 checkpoint_dir=ckpt_dir,
                 opts=opts,
             )
+            output_files = save_outputs(
+                results, out_dir,
+                profile_name=cfg.profile,
+                source_path=source_path,
+            )
             ckpt_clear(ckpt_dir)
             self.results = results
+            self.output_files = tuple(str(path) for path in output_files)
             self.stage = "done"
             self.stage_done = 1
             self.stage_total = 1
-            self.info = f"{len(results)} terms extracted and translated"
+            self.info = f"已提取并保存 {len(results)} 条术语"
         except _InterruptedError:
             self.error = "Cancelled by user"
         except Exception as e:

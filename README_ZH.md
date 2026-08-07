@@ -10,7 +10,7 @@
 
 ## 快速启动
 
-**Windows：双击 `run.bat`**（首次运行会自动安装 Python 和依赖）
+**Windows 首次使用：先双击 `setup.bat`，完成后双击 `run.bat`**
 
 手动启动：
 ```bash
@@ -18,16 +18,43 @@ pip install -r requirements.txt
 streamlit run ui/app.py
 ```
 
-> 首次使用需配置 API Key，见 [部署指南](docs/DEPLOY.md)。
+CLI 入口（术语表可选）：
+```bash
+python cli.py --source 原文.xlsx
+python cli.py --source 原文.xlsx --glossary 已有术语表.xlsx
+```
+
+## API 服务配置
+
+网页「设置」可分别配置四组兼容 OpenAI 的服务：
+
+- 主生成服务：术语提取与翻译。
+- 人名/地名预识别（NER）：减少专名漏提；默认继承主服务密钥和地址。
+- 术语相似度匹配（Embedding）：沿用最接近的项目术语；默认继承主服务密钥和地址。
+- 表头识别：Excel 列自动判断；默认继承主服务密钥和地址。
+
+所有 API 密钥仅保存在当前进程内存，不写入 `.ui_config.json`、断点、日志或导出文件。重启后可重新填写，或通过环境变量提供：
+
+| 服务 | 密钥 | 地址 | 模型 |
+|---|---|---|---|
+| 主生成 | `OPENAI_API_KEY` | `OPENAI_API_BASE` / `OPENAI_BASE_URL` | `OPENAI_MODEL` |
+| NER | `NER_API_KEY` | `NER_API_BASE` / `NER_BASE_URL` | `NER_MODEL` |
+| Embedding | `EMBEDDING_API_KEY` | `EMBEDDING_API_BASE` / `EMBEDDING_BASE_URL` | `EMBEDDING_MODEL` |
+| 表头识别 | `DETECT_API_KEY` | `DETECT_API_BASE` / `DETECT_BASE_URL` | `DETECT_MODEL` |
+
+CLI 支持对应的 `--ner-*` 与 `--embedding-*` 参数；未提供专用密钥或地址时继承主生成服务。表头识别仅用于网页上传阶段。
+表头识别不可用时，网页会显示原因并暂用默认列；可手动改列并继续提取，人工确认只记忆到相同文件上下文。
+
+> 安装、主工具、标注工具、Agent 操作与验收，见 [PM 使用指南](docs/PM使用指南_游戏术语提取与标注.html)。
 
 ## 工作流
 
 ```
-原文.xlsx + 术语表.xlsx
+原文.xlsx + 可选的已有术语表.xlsx
   ├─ AI 列自动识别（原文列 / Key列 / 双语英文列 / 术语表中英列）
-  ├─ NER 预扫描（人名/地名）
+  ├─ 人名/地名预识别（NER）
   ├─ LLM 术语提取（3轮投票，取3票一致项）
-  ├─ 向量嵌入匹配（精确命中走术语表）
+  ├─ 术语相似度匹配（Embedding；精确命中走术语表）
   └─ LLM 翻译（新术语）
         ├─ results.xlsx（原始结果，含调试字段）
         └─ 候选术语_模板.xlsx（8列标注模板，含来源行 Key，审核状态=未审核）
@@ -58,8 +85,8 @@ CLI 绑定源文件 Key 列用 `--key-col <列索引>`；UI 上传后自动识�
 ├── profiles/               # 游戏配置文件（YAML）
 ├── database/               # 向量库缓存（自动生成）
 ├── output/                 # 运行结果（自动生成）
-├── config.py               # 引擎参数（从 config_template.py 复制）
-├── config_template.py      # 配置模板
+├── config.py               # 引擎运行参数（不存 API 密钥）
+├── config_template.py      # 非敏感默认配置
 ├── run.bat                 # Windows 一键启动
 ├── setup.bat               # 自动安装 Python 环境
 └── requirements.txt
@@ -69,7 +96,7 @@ CLI 绑定源文件 Key 列用 `--key-col <列索引>`；UI 上传后自动识�
 
 每个游戏项目对应一个 `profiles/*.yaml`，控制提取规则、术语分类、翻译策略。
 
-- 在 UI「设置 → 高级设置」中上传 YAML 文件
+- 在 UI「设置 → 项目规则与性能」中上传 YAML 文件
 - 或直接放入 `profiles/` 目录后重启
 
 ## 断点续跑

@@ -13,10 +13,12 @@ from pathlib import Path
 from core.retry import retry_async
 from openai import AsyncOpenAI
 from config import EXTRACTOR_CONFIG, get_token_param_name
+from config_template import DEFAULT_API_BASE
 
 class LLMExtractor:
 
-    def __init__(self, api_key: str, base_url: str='https://api.openai.com/v1', base_dir: str='output', cache_dir: str=''):
+    def __init__(self, api_key: str, base_url: str = DEFAULT_API_BASE,
+                 base_dir: str = 'output', cache_dir: str = ''):
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=EXTRACTOR_CONFIG["timeout"], max_retries=EXTRACTOR_CONFIG["max_retries"])
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(exist_ok=True)

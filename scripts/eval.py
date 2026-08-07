@@ -5,25 +5,37 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
-from core.checkpoint import task_id, clear as ckpt_clear
+from core.checkpoint import checkpoint_dir_name, clear as ckpt_clear
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.main import run_pipeline
+from config_template import DEFAULT_API_BASE, DEFAULT_EMBEDDING_MODEL, DEFAULT_MODEL, DEFAULT_NER_MODEL, DEFAULT_PROFILE
+from core.main import PipelineOpts, run_pipeline
 
-API_KEY = os.getenv("OPENAI_API_KEY")
-BASE_URL = "https://api.vectorengine.ai/v1"
-MODEL = "claude-opus-4-7"
-PROFILE = "yanyun"
+
+def _env(*names):
+    return next((os.getenv(name, "").strip() for name in names if os.getenv(name, "").strip()), "")
 
 T = ROOT / "test_file"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--source", default=str(T / "原文.xlsx"))
 parser.add_argument("--manual", default=str(T / "人工术语_cleaned.xlsx"))
-parser.add_argument("--profile", default=PROFILE)
+parser.add_argument("--profile", default=DEFAULT_PROFILE)
+parser.add_argument("--api-key", default=_env("OPENAI_API_KEY"))
+parser.add_argument("--base-url", default=_env("OPENAI_API_BASE", "OPENAI_BASE_URL") or DEFAULT_API_BASE)
+parser.add_argument("--model", default=_env("OPENAI_MODEL") or DEFAULT_MODEL)
+parser.add_argument("--ner-api-key", default=_env("NER_API_KEY"))
+parser.add_argument("--ner-base-url", default=_env("NER_API_BASE", "NER_BASE_URL"))
+parser.add_argument("--ner-model", default=_env("NER_MODEL") or DEFAULT_NER_MODEL)
+parser.add_argument("--embedding-api-key", default=_env("EMBEDDING_API_KEY", "EMBED_API_KEY"))
+parser.add_argument("--embedding-base-url", default=_env("EMBEDDING_API_BASE", "EMBEDDING_BASE_URL", "EMBED_API_BASE", "EMBED_BASE_URL"))
+parser.add_argument("--embedding-model", default=_env("EMBEDDING_MODEL", "EMBED_MODEL") or DEFAULT_EMBEDDING_MODEL)
 args = parser.parse_args()
+
+if not args.api_key:
+    parser.error("缺少主生成服务 API 密钥：请传 --api-key 或设置 OPENAI_API_KEY")
 
 SOURCE = args.source
 MANUAL = Path(args.manual)
@@ -31,14 +43,26 @@ PROFILE = args.profile
 GLOSSARY = str(T / "【日更】0514术语表.xlsx")
 
 t0 = time.time()
-tid = task_id(SOURCE, PROFILE)
+tid = checkpoint_dir_name(Path(SOURCE).read_bytes(), PROFILE)
 RUN_ID = f"{datetime.now().strftime('%Y%m%d_%H%M')}_{PROFILE}"
 CKPT = str(ROOT / "output" / "_checkpoints" / tid)
 OUT = ROOT / "output" / "runs" / RUN_ID
 OUT.mkdir(parents=True, exist_ok=True)
 
-results = run_pipeline(SOURCE, GLOSSARY, PROFILE, API_KEY, BASE_URL, MODEL,
-                       output_dir=str(OUT), checkpoint_dir=CKPT, raw_dir=str(OUT / "raw_data"))
+opts = PipelineOpts(
+    ner_use_main=not bool(args.ner_api_key or args.ner_base_url),
+    ner_api_key=args.ner_api_key or args.api_key,
+    ner_base_url=args.ner_base_url or args.base_url,
+    ner_model=args.ner_model,
+    embedding_use_main=not bool(args.embedding_api_key or args.embedding_base_url),
+    embedding_api_key=args.embedding_api_key or args.api_key,
+    embedding_base_url=args.embedding_base_url or args.base_url,
+    embedding_model=args.embedding_model,
+)
+results = run_pipeline(
+    SOURCE, GLOSSARY, PROFILE, args.api_key, args.base_url, args.model,
+    output_dir=str(OUT), checkpoint_dir=CKPT, raw_dir=str(OUT / "raw_data"), opts=opts,
+)
 ckpt_clear(CKPT)
 
 df_man = pd.read_excel(MANUAL)

@@ -8,7 +8,8 @@ import sys
 import tempfile
 import pathlib
 
-HTML = "/Users/spellbook/Desktop/Langlobal/AI Lab/Game-Terms-Extraction-Langlobal/annotation/术语标注助手_v3.0.html"
+ANNOTATION_DIR = pathlib.Path(__file__).resolve().parents[1]
+HTML = ANNOTATION_DIR / "术语标注助手_v3.0.html"
 
 try:
     from openpyxl import Workbook
@@ -80,7 +81,7 @@ def term_count(page):
 def main():
     xlsx, n_rows = make_xlsx()
     xlsx2 = make_xlsx2()
-    url = pathlib.Path(HTML).as_uri()
+    url = HTML.as_uri()
     console_errors = []
     page_errors = []
 

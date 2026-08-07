@@ -4,13 +4,15 @@ from typing import Dict, Optional
 
 from openai import AsyncOpenAI
 from config import TRANSLATOR_CONFIG
+from config_template import DEFAULT_API_BASE, DEFAULT_MODEL
 from core.json_util import extract_json
 from core.retry import retry_async
 
 
 class TermTranslator:
 
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", model: str = "gpt-4o", profile: Optional[Dict] = None):
+    def __init__(self, api_key: str, base_url: str = DEFAULT_API_BASE,
+                 model: str = DEFAULT_MODEL, profile: Optional[Dict] = None):
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=TRANSLATOR_CONFIG["timeout"], max_retries=TRANSLATOR_CONFIG["max_retries"])
         self.model = model
         self.profile = profile or {}

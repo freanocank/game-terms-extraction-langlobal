@@ -2,10 +2,12 @@
 AI later parses the filled form into profiles/<game>.yaml.
 4 columns: 问题 | 填写提示 | 参考示例(燕云) | 请在这里填写.
 """
+from pathlib import Path
+
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
-OUT = "/Users/spellbook/Desktop/Langlobal/AI Lab/Game-Terms-Extraction-Langlobal/docs/项目配置填写表.xlsx"
+OUT = Path(__file__).resolve().parents[1] / "docs" / "项目配置填写表.xlsx"
 LAST_COL = 4  # A..D
 
 HEADER_FILL  = PatternFill("solid", fgColor="1F4E79")

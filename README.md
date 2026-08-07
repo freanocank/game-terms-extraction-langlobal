@@ -20,6 +20,8 @@ English | [中文](README_ZH.md)
 
  Prepare source text according to the README input format and run the extraction scripts.
 
+ PM setup, extraction, annotation, agent prompts, acceptance, and recovery: [PM Usage Guide (Chinese)](docs/PM使用指南_游戏术语提取与标注.html).
+
 ## Notes
 
  Terminology output should be reviewed by localization staff before delivery.
@@ -31,10 +33,29 @@ The following code blocks keep commands, paths, filenames, and configuration key
 ```bash
 pip install -r requirements.txt
 streamlit run ui/app.py
+
+# CLI: the existing glossary is optional
+python cli.py --source source.xlsx
+python cli.py --source source.xlsx --glossary glossary.xlsx
 ```
 
+## API Service Configuration
+
+The Settings page exposes four OpenAI-compatible services: primary extraction/translation, NER pre-scan, Embedding, and Excel header detection. Auxiliary services inherit the primary key and Base URL by default, but each can use independent credentials, endpoint, and model.
+
+API keys stay in process memory only. They are never written to `.ui_config.json`, checkpoints, logs, or exports. Configure them in the UI after startup or provide environment variables:
+
+| Service | Key | Base URL | Model |
+|---|---|---|---|
+| Primary | `OPENAI_API_KEY` | `OPENAI_API_BASE` / `OPENAI_BASE_URL` | `OPENAI_MODEL` |
+| NER | `NER_API_KEY` | `NER_API_BASE` / `NER_BASE_URL` | `NER_MODEL` |
+| Embedding | `EMBEDDING_API_KEY` | `EMBEDDING_API_BASE` / `EMBEDDING_BASE_URL` | `EMBEDDING_MODEL` |
+| Header detection | `DETECT_API_KEY` | `DETECT_API_BASE` / `DETECT_BASE_URL` | `DETECT_MODEL` |
+
+The CLI also accepts matching `--ner-*` and `--embedding-*` options. Header detection is used only by the web upload flow.
+
 ```
-source.xlsx + glossary.xlsx
+source.xlsx + optional existing glossary.xlsx
   ├─ AI column auto-detection (source column / Key column / bilingual English column / glossary ZH-EN columns)
   ├─ NER pre-scan (names/places)
   ├─ LLM term extraction (3-round voting; keep unanimous items)
@@ -61,8 +82,8 @@ source.xlsx + glossary.xlsx
 ├── profiles/               # game profile files (YAML)
 ├── database/               # vector-store cache (generated)
 ├── output/                 # run outputs (generated)
-├── config.py               # engine parameters (copied from config_template.py)
-├── config_template.py      # config template
+├── config.py               # engine parameters (never stores API keys)
+├── config_template.py      # non-secret defaults
 ├── run.bat                 # one-click Windows launcher
 ├── setup.bat               # automatic Python environment setup
 └── requirements.txt

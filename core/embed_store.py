@@ -3,14 +3,17 @@
 
 import sqlite3
 import threading
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 from openai import OpenAI
+from config_template import DEFAULT_EMBEDDING_MODEL
 
 
 class EmbedStore:
 
-    def __init__(self, db_path: str, api_key: str, base_url: str, model: str = "text-embedding-3-large"):
+    def __init__(self, db_path: str, api_key: str, base_url: str,
+                 model: str = DEFAULT_EMBEDDING_MODEL):
         self.db_path = db_path
         self.api_key = api_key
         self.base_url = base_url
@@ -24,14 +27,22 @@ class EmbedStore:
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _init_db(self):
+        service_identity = hashlib.sha256(
+            f"{self.base_url.rstrip('/')}|{self.model}".encode("utf-8")
+        ).hexdigest()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS embeddings (term TEXT PRIMARY KEY, emb BLOB NOT NULL, dim INTEGER NOT NULL)")
             conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
-            row = conn.execute("SELECT value FROM meta WHERE key='model'").fetchone()
-            if row and row[0] != self.model:
+            row = conn.execute("SELECT value FROM meta WHERE key='service_identity'").fetchone()
+            has_embeddings = conn.execute("SELECT 1 FROM embeddings LIMIT 1").fetchone() is not None
+            if has_embeddings and (not row or row[0] != service_identity):
                 conn.execute("DELETE FROM embeddings")
                 self._cache_terms = None
                 self._cache_matrix = None
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('service_identity', ?)",
+                (service_identity,),
+            )
             conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?)", (self.model,))
             row = conn.execute("SELECT dim FROM embeddings LIMIT 1").fetchone()
             if row:

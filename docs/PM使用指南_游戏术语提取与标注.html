@@ -1,0 +1,568 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM 使用指南 · 游戏术语提取与标注 — Langlobal</title>
+<style>
+:root {
+  --ink: #1d2125;
+  --ink-soft: #3c434a;
+  --paper: #faf8f2;
+  --card: #ffffff;
+  --green: #4e9d4e;
+  --green-deep: #35703a;
+  --blue: #6f9fc8;
+  --blue-deep: #3e6e96;
+  --blue-tint: #eef3f8;
+  --green-tint: #eef5ec;
+  --amber: #e0a015;
+  --amber-tint: #fdf3d9;
+  --danger: #c4423a;
+  --rule: #d8d2c4;
+  --hairline: #e7e2d6;
+  --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --sans: "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "SF Mono", "Menlo", "Consolas", "Courier New", monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: var(--sans); background: var(--paper); color: var(--ink); font-size: 15px; line-height: 1.85; }
+.brand-stripe { height: 6px; background: linear-gradient(90deg, var(--green) 0 34%, var(--blue) 34% 67%, var(--ink) 67% 100%); }
+.sheet { max-width: 880px; margin: 0 auto; padding: 40px 48px 64px; }
+
+/* Header */
+header { display: flex; align-items: center; gap: 28px; padding: 26px 0 30px; border-bottom: 3px solid var(--ink); }
+header img.logo { width: 104px; height: auto; flex: none; border-radius: 16px; }
+.title-block { flex: 1; }
+.doc-kind { font-family: var(--mono); font-size: 12px; letter-spacing: .35em; color: var(--green-deep); text-transform: uppercase; margin-bottom: 6px; }
+h1 { font-family: var(--serif); font-size: 33px; font-weight: 900; letter-spacing: .02em; line-height: 1.3; }
+h1 .dot { color: var(--blue-deep); padding: 0 2px; }
+.subtitle { font-size: 13.5px; color: var(--ink-soft); margin-top: 8px; }
+.meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.chip { font-family: var(--mono); font-size: 12px; border: 1px solid var(--rule); background: var(--card); border-radius: 999px; padding: 4px 14px; color: var(--ink-soft); }
+.chip b { color: var(--ink); font-weight: 700; }
+.chip.hot { border-color: var(--green); color: var(--green-deep); background: var(--green-tint); }
+
+/* Navigation */
+.toc { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 24px 0 0; }
+.toc a { min-width: 0; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); padding: 8px 10px; color: var(--ink-soft); font-family: var(--mono); font-size: 11.5px; line-height: 1.4; text-align: center; text-decoration: none; }
+.toc a:hover, .toc a:focus-visible { border-color: var(--green); color: var(--green-deep); background: var(--green-tint); }
+
+/* Sections */
+section { margin-top: 50px; }
+.sec-head { display: grid; grid-template-columns: 76px 1fr; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+.sec-num { font-family: var(--serif); font-size: 46px; font-weight: 900; color: var(--green); line-height: 1; }
+.sec-title-wrap { border-bottom: 1.5px solid var(--ink); padding-bottom: 10px; }
+h2 { font-family: var(--serif); font-size: 23px; font-weight: 800; letter-spacing: .04em; }
+.sec-en { font-family: var(--mono); font-size: 11px; letter-spacing: .25em; color: var(--blue-deep); text-transform: uppercase; margin-top: 2px; }
+h3 { font-family: var(--serif); font-size: 16.5px; font-weight: 800; margin: 26px 0 10px; padding-left: 12px; border-left: 4px solid var(--blue); }
+p { margin: 8px 0; color: var(--ink-soft); }
+p strong, li strong { color: var(--ink); }
+ol.tight, ul.tight { margin: 8px 0 8px 1.4em; color: var(--ink-soft); }
+ol.tight li, ul.tight li { margin: 5px 0; }
+
+/* Flow */
+.flow { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 24px 22px 18px; margin: 14px 0 6px; }
+.flow-line { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; row-gap: 14px; }
+.flow-line + .flow-line { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--hairline); }
+.node { font-size: 13px; padding: 8px 16px; border-radius: 10px; white-space: nowrap; }
+.node.file { font-family: var(--mono); font-size: 12px; background: var(--paper); border: 1px dashed var(--ink-soft); color: var(--ink-soft); }
+.node.engine { background: var(--blue-tint); border: 1.5px solid var(--blue-deep); color: var(--blue-deep); font-weight: 700; }
+.node.human { background: var(--green-tint); border: 1.5px solid var(--green-deep); color: var(--green-deep); font-weight: 700; }
+.arrow { font-family: var(--mono); color: var(--ink); font-weight: 700; }
+
+/* Cards */
+.troika { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+.def-card { background: var(--card); border: 1px solid var(--rule); border-top: 4px solid var(--blue-deep); border-radius: 10px; padding: 14px 16px; }
+.def-card.green { border-top-color: var(--green); }
+.def-card.ink { border-top-color: var(--ink); }
+.def-card h4 { font-family: var(--serif); font-size: 15px; margin-bottom: 6px; }
+.def-card p { font-size: 13px; line-height: 1.7; margin: 0; }
+
+/* Interface map */
+.ui-map { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.region { display: grid; grid-template-columns: 150px 1fr; gap: 14px; background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--blue); border-radius: 8px; padding: 11px 15px; }
+.region .r-name { font-family: var(--serif); font-weight: 800; color: var(--ink); font-size: 14px; }
+.region .r-desc { font-size: 13px; color: var(--ink-soft); line-height: 1.65; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin: 12px 0; background: var(--card); font-size: 13.5px; }
+.table-wrap { width: 100%; overflow-x: visible; margin: 12px 0; }
+.table-wrap table { margin: 0; }
+thead th { font-family: var(--serif); font-weight: 800; text-align: left; background: var(--blue-tint); color: var(--ink); padding: 9px 12px; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); }
+tbody td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); vertical-align: top; color: var(--ink-soft); }
+tbody tr:last-child td { border-bottom: 2px solid var(--ink); }
+td:first-child, th:first-child { padding-left: 14px; }
+.t-key { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.keep { color: var(--green-deep); font-weight: 700; }
+.wipe { color: var(--danger); font-weight: 700; }
+
+/* Buttons inline */
+.ui { display: inline-block; font-size: 12.5px; border-radius: 7px; padding: 1px 8px; border: 1px solid var(--rule); background: var(--card); white-space: nowrap; }
+.ui.green { background: var(--green-tint); border-color: var(--green); color: var(--green-deep); font-weight: 600; }
+.ui.blue { background: var(--blue-tint); border-color: var(--blue-deep); color: var(--blue-deep); font-weight: 600; }
+.ui.red { background: #f8e7e5; border-color: var(--danger); color: var(--danger); font-weight: 600; }
+
+/* Steps */
+.steps { counter-reset: step; margin: 12px 0; }
+.step { display: grid; grid-template-columns: 36px 1fr; gap: 14px; padding: 11px 0; border-bottom: 1px dashed var(--hairline); }
+.step:last-child { border-bottom: none; }
+.step::before { counter-increment: step; content: counter(step, decimal-leading-zero); font-family: var(--serif); font-weight: 900; font-size: 18px; color: var(--blue-deep); }
+.step .s-body { color: var(--ink-soft); font-size: 14px; }
+.step .s-body b { color: var(--ink); }
+
+/* status badges (match the tool) */
+.status { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 10px; font-weight: 600; }
+.status.pend { background: #fef3c7; color: #b45309; }
+.status.appr { background: #cfe0ef; color: #2c4a63; }
+.status.hit { background: #d6ecd0; color: #2f5e33; }
+
+/* kbd */
+kbd { font-family: var(--mono); font-size: 11.5px; background: var(--ink); color: #fff; border-radius: 6px; padding: 2px 8px; margin: 0 1px; }
+
+/* Callout */
+.callout { border-left: 4px solid var(--green); background: var(--green-tint); border-radius: 0 10px 10px 0; padding: 12px 16px; font-size: 13.5px; color: var(--ink-soft); margin: 14px 0; }
+.callout.warn { border-left-color: var(--amber); background: var(--amber-tint); }
+.callout b { color: var(--ink); }
+
+/* Agent prompts and operational details */
+.prompt { margin: 10px 0 0; border: 1px solid var(--ink); border-radius: 10px; background: #20252a; color: #f4f1e8; padding: 16px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto; tab-size: 2; }
+.copy-note { margin: 6px 0 18px; color: var(--blue-deep); font-family: var(--mono); font-size: 11.5px; }
+.path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.schema { margin: 10px 0; border: 1px dashed var(--blue-deep); border-radius: 8px; background: var(--blue-tint); padding: 10px 12px; color: var(--ink); overflow-wrap: anywhere; }
+.tag { display: inline-block; border: 1px solid var(--rule); border-radius: 999px; padding: 0 8px; font-size: 11px; white-space: nowrap; }
+.tag.download { border-color: var(--green); color: var(--green-deep); background: var(--green-tint); }
+.tag.display { border-color: var(--blue); color: var(--blue-deep); background: var(--blue-tint); }
+.tag.temp { border-color: var(--amber); color: #805b0a; background: var(--amber-tint); }
+.tag.internal { border-color: var(--ink-soft); color: var(--ink-soft); background: var(--paper); }
+
+/* FAQ */
+.faq { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 4px 18px; margin: 12px 0; }
+.faq dt { font-family: var(--serif); font-weight: 800; color: var(--ink); font-size: 14.5px; margin: 14px 0 4px; }
+.faq dd { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 14px; line-height: 1.75; }
+
+/* Footer */
+footer { margin-top: 60px; border-top: 3px solid var(--ink); padding-top: 16px; display: flex; align-items: center; gap: 12px; }
+footer img { width: 38px; }
+footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); letter-spacing: .12em; }
+
+@media (max-width: 720px) {
+  .sheet { padding: 24px 18px 48px; }
+  .toc { grid-template-columns: 1fr; }
+  .troika { grid-template-columns: 1fr; }
+  .region { grid-template-columns: 1fr; gap: 4px; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap table { min-width: 680px; }
+  .prompt { font-size: 10.5px; }
+  h1 { font-size: 25px; }
+  .sec-head { grid-template-columns: 50px 1fr; }
+  .sec-num { font-size: 34px; }
+}
+@media print {
+  body { background: #fff; font-size: 12.5px; }
+  .sheet { max-width: none; padding: 0 8mm; }
+  .toc { display: none; }
+  section { margin-top: 32px; }
+  .prompt { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; color: #000; background: #f4f4f4; border-color: #777; }
+  .table-wrap { overflow: visible; }
+  table, .table-wrap, .flow, .def-card, .region, .callout, .faq, .prompt { break-inside: avoid; page-break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+  @page { margin: 14mm 12mm; }
+}
+</style>
+</head>
+<body>
+<div class="brand-stripe"></div>
+<div class="sheet">
+
+<header>
+  <img class="logo" src="data:image/jpeg;base64,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" alt="Langlobal">
+  <div class="title-block">
+    <div class="doc-kind">PM Usage Guide · PM 使用指南</div>
+    <h1>游戏术语提取 <span class="dot">·</span> 人工标注</h1>
+    <div class="subtitle">面向项目经理的完整操作手册：先填项目配置包并定稿 Profile，再提取候选词、人工审核并回流术语表。</div>
+    <div class="meta-row">
+      <span class="chip hot"><b>正式支持 Windows 10/11</b></span>
+      <span class="chip">PM 配置包 + 主工具 + 标注工具</span>
+      <span class="chip">标注环节离线</span>
+      <span class="chip">PM 全流程验收</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="本页目录">
+  <a href="#purpose-preparation">01 用途与准备</a>
+  <a href="#manual-operation">02 手动操作</a>
+  <a href="#agent-operation">03 Agent 操作</a>
+  <a href="#acceptance">04 验收</a>
+  <a href="#recovery">05 故障恢复</a>
+  <a href="#profile-intake">Profile 配置包</a>
+  <a href="#extractor">主工具</a>
+  <a href="#annotation">标注工具</a>
+</nav>
+
+<!-- 01 -->
+<section id="purpose-preparation">
+  <div class="sec-head">
+    <div class="sec-num">01</div>
+    <div class="sec-title-wrap"><h2>用途与准备</h2><div class="sec-en">Purpose &amp; preparation</div></div>
+  </div>
+
+  <p>这份指南覆盖一条可交接、可验收的闭环：PM 先用项目配置包提交项目口径，工程 / Agent 将其转成已审核 Profile；主提取工具再从游戏原文与已有术语表生成候选词，标注工具负责人工修订与审核，审定后的术语表回流下一轮。</p>
+  <div class="callout"><b>平台边界：</b>正式支持平台：Windows 10/11。其他平台未经过正式验证；仓库只提供通用 Python / Streamlit 技术命令，不代表 macOS 或 Linux 已完成兼容性验收。主提取工具调用外部 API，安装与运行通常需要网络；标注工具本身为离线单 HTML，表格数据不上传。</div>
+
+  <div class="flow" aria-label="术语提取、人工标注与回流闭环">
+    <div class="flow-line">
+      <span class="node file">项目配置填写表.xlsx</span>
+      <span class="arrow">→</span>
+      <span class="node engine">工程 / Agent · 转换 + 语义审校</span>
+      <span class="arrow">→</span>
+      <span class="node file">已审核 Profile.yaml</span>
+    </div>
+    <div class="flow-line">
+      <span class="node file">原文.xlsx + 已有术语表.xlsx</span>
+      <span class="arrow">→</span>
+      <span class="node engine">主工具 · 提取 / 匹配 / 翻译</span>
+      <span class="arrow">→</span>
+      <span class="node file">候选术语标注表.xlsx</span>
+      <span class="arrow">→</span>
+      <span class="node human">标注工具 · 人工审核</span>
+      <span class="arrow">→</span>
+      <span class="node file">术语表_*.xlsx</span>
+      <span class="arrow">↺ 下一轮术语表输入</span>
+    </div>
+  </div>
+
+  <h3>工作目录与运行前检查</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>项目</th><th>PM 需要确认</th></tr></thead>
+      <tbody>
+        <tr><td class="t-key">工作目录</td><td>进入同时含 <span class="mono">run.bat</span>、<span class="mono">setup.bat</span>、<span class="mono">ui/</span>、<span class="mono">annotation/</span> 的项目根目录。本文 Agent 指令统一使用占位符：<span class="path">[项目根目录绝对路径]</span>。</td></tr>
+        <tr><td class="t-key">API / 模型</td><td>准备兼容 OpenAI 的主生成服务密钥、Base URL 与模型名。NER、Embedding、表头识别默认继承主服务，也可分别配置独立密钥、地址和模型。密钥只在可信本机录入，不放进文档、截图或聊天。</td></tr>
+        <tr><td class="t-key">PM 配置包</td><td>正式输入为「游戏术语抽取-项目配置包」中的 <span class="mono">Profile撰写指南.html</span> 与 <span class="mono">项目配置填写表.xlsx</span>；项目内 <span class="mono">docs/</span> 有同版副本。PM 只填黄色最后一列，不能把 xlsx 直接上传到主工具。</td></tr>
+        <tr><td class="t-key">Profile</td><td>工程 / Agent 将填写表转成并审校为版本化 <span class="mono">profiles/*.yaml</span>。它决定提取口径、分类、后过滤及部分翻译规则；PM 开跑前必须核对所选文件名与归档版本一致。</td></tr>
+        <tr><td class="t-key">原文 xlsx</td><td>至少有一列待提取中文原文；建议同时保留稳定 Key / ID。双语模式还要有官方英文列。<b>有效数据必须放在第一个工作表</b>，该表首行为表头。</td></tr>
+        <tr><td class="t-key">术语表 xlsx</td><td>可选。上传时，第一个工作表至少有可指定的中文术语列和英文译文列，方向为中文 → 英文；主工具只载入<b>中文与英文同时非空</b>的行。没有历史术语时可不上传，系统会直接提取并生成新译文。</td></tr>
+        <tr><td class="t-key">工作表限制</td><td>主工具与标注工具都只读取每个工作簿的<b>第一个工作表</b>；后续工作表不会自动合并或作为回退。原文、已有术语、候选术语都要放在首表。</td></tr>
+        <tr><td class="t-key">不变量</td><td>原文必须是可读取的 <span class="mono">.xlsx</span>，术语表如提供也必须是 <span class="mono">.xlsx</span>；列号在 CLI 中从 0 开始。主工具会清理占位符 / 标签，并跳过空值、纯标点与重复原文。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>产物分类：哪些能拿走，哪些只是运行状态</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>产物</th><th>分类</th><th>位置与用途</th></tr></thead>
+      <tbody>
+        <tr><td class="t-key">PM Profile 填写表</td><td><span class="tag internal">项目输入</span></td><td>PM 填好的版本化 <span class="mono">项目配置填写表.xlsx</span>。它不进入主工具；与最终 YAML、审校报告一并归档，用于证明项目口径来源。</td></tr>
+        <tr><td class="t-key">已审核 Profile</td><td><span class="tag internal">项目配置</span></td><td><span class="mono">profiles/&lt;slug_版本&gt;.yaml</span>。UI 上传后保存到该目录；同名上传会直接覆盖。运行输出不会自动附带 YAML 副本或内容哈希，必须人工随本轮结果归档。</td></tr>
+        <tr><td class="t-key">候选术语标注表</td><td><span class="tag download">可下载</span></td><td>结果页下载名通常为 <span class="mono">[Profile]_[原文描述]_候选术语标注表_YYYYMMDD.xlsx</span>；无上下文时回退 <span class="mono">候选术语_模板.xlsx</span>。浏览器副本进入默认下载目录或浏览器提示的用户选择位置；项目内另存于 <span class="mono">output/run_*/</span>。历史列表只直接下载原始结果；加载该历史结果后可重新生成候选模板，须核对当前 Profile 与生成文件名。</td></tr>
+        <tr><td class="t-key">原始结果</td><td><span class="tag download">可下载</span></td><td>当前 Session 下载名 <span class="mono">results.xlsx</span>，进入浏览器默认下载目录或提示的用户选择位置；项目内 <span class="mono">output/run_*/results.xlsx</span> 是磁盘副本，用于追溯字段和匹配来源。</td></tr>
+        <tr><td class="t-key">提取进度 / 图表 / 预览</td><td><span class="tag display">仅显示</span></td><td>Streamlit 页面中的数量、阶段、匹配分布、分类分布和表格预览；页面显示本身不是交付文件。</td></tr>
+        <tr><td class="t-key">标注工程</td><td><span class="tag download">可下载</span></td><td><span class="mono">term_project_*.json</span>，包含原文、术语库、分类与列配置。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档后再续作或交接。</td></tr>
+        <tr><td class="t-key">审定术语表</td><td><span class="tag download">可下载</span></td><td><span class="mono">术语表_*.xlsx</span>，标注工具正式 8 列导出。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档，作为交付物及下一轮术语表输入。</td></tr>
+        <tr><td class="t-key">断点</td><td><span class="tag temp">临时</span></td><td><span class="mono">output/_checkpoints/</span> 下的续跑状态与输入副本；UI 成功完成后清理，异常或取消后保留。</td></tr>
+        <tr><td class="t-key">浏览器草稿</td><td><span class="tag internal">内部</span></td><td>浏览器本地存储中的术语草稿；只兜底术语，不含原文，也不是可交接文件。</td></tr>
+        <tr><td class="t-key">缓存 / 调试 / 配置</td><td><span class="tag internal">内部</span></td><td><span class="mono">database/</span>、<span class="mono">raw_data/</span>、<span class="mono">.ui_config.json</span> 等。不要当交付物；API 密钥不会写入这些文件、断点或导出结果。</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 02 -->
+<section id="manual-operation">
+  <div class="sec-head">
+    <div class="sec-num">02</div>
+    <div class="sec-title-wrap"><h2>手动启动与完整闭环</h2><div class="sec-en">Manual operation</div></div>
+  </div>
+
+  <h3 id="profile-intake">Profile 配置包：PM 填写、审校与加载</h3>
+  <div class="callout"><b>正式分工：</b>PM 的入口是配置包 Excel；UI 中“下载 YAML 配置模板”是技术备用入口，不能替代项目填表。xlsx 不能直接上传，转换脚本也只生成待审草稿；只有通过结构与语义审校的 YAML 才能进入 <span class="mono">profiles/</span>。</div>
+
+  <div class="steps">
+    <div class="step"><div class="s-body"><b>打开配置包。</b>使用「游戏术语抽取-项目配置包」中的 <span class="mono">Profile撰写指南.html</span> 与 <span class="mono">项目配置填写表.xlsx</span>；项目 <span class="mono">docs/</span> 下有内容完全相同的副本。配置包只含指南和填写表，不含可直接运行的 YAML。</div></div>
+    <div class="step"><div class="s-body"><b>只填黄色最后一列。</b>第三列是燕云参考示例，不要覆盖。交接门槛为 Q1–Q7、Q10–Q11 已填写；Q8–Q9 与 Q12 按表中标记选填。Q4 / Q5 写清提取与排除边界，Q6 写可判定的硬规则，Q11 至少给 3–5 条整句无术语或易误判负例。</div></div>
+    <div class="step"><div class="s-body"><b>按可转换格式填写。</b>Q7 每行只写一个短分类名；Q10 每个正例把“原文 → 术语(分类)、术语(分类)”写在同一行；Q11 每行一条负例。当前转换器不会可靠拆分一行中的多个分类，也不会把断成两行的 Q10 原文与答案自动配对。</div></div>
+    <div class="step"><div class="s-body"><b>版本化交接。</b>另存为 <span class="mono">[项目slug]_项目配置填写表_v01.xlsx</span>，连同源文、已有术语表和客户口径交给工程 / Agent。不要在 PM 原表上直接改第三列示例，也不要用同一个文件名覆盖已确认版本。</div></div>
+    <div class="step"><div class="s-body"><b>转换为待审草稿。</b>PM 不需要运行命令。技术人员在源码仓库根目录执行下方命令，把草稿写入审校目录而不是直接写进 <span class="mono">profiles/</span>；不得使用 <span class="mono">--force</span>。若交付包内没有 <span class="mono">scripts/</span>，由具备源码仓库的工程 / Agent 转换。<div class="schema mono">python3 scripts/import_project_form.py "[已填写 xlsx 绝对路径]" --slug "[稳定短名]" --out "[审校目录]/[slug]_v01.yaml"</div></div></div>
+    <div class="step"><div class="s-body"><b>结构与语义审校。</b>确认 YAML 顶层是对象，字段类型正确，无重复键、空列表项、未解决的 <span class="mono">TODO</span> / 默认占位；逐项对照填写表，规整分类与正例，确保 few-shot 分类属于 <span class="mono">term_categories</span>、过滤分类也在分类表内。脚本输出的默认规则不能当成客户已确认口径。</div></div>
+    <div class="step"><div class="s-body"><b>上传并选择。</b>在「设置 → 高级设置 → 项目配置（Profile）」上传已审核 <span class="mono">.yaml</span>，再在「已有配置」选择它。上传同名文件会直接覆盖现有版本；替换前先下载旧 YAML 留档，日常使用带版本的新文件名。直接放进 <span class="mono">profiles/</span> 时只使用 <span class="mono">.yaml</span> 并重启。</div></div>
+    <div class="step"><div class="s-body"><b>小样本确认后冻结。</b>用一个代表性小样检查漏报、误报、分类和译文；通过后把填写表、实际 YAML、审校报告和小样结果放进同一归档目录。Profile 内容、术语表、模型、列设置或模式有变化时新开一轮，不续用旧断点。</div></div>
+  </div>
+
+  <h3>填写项如何影响当前程序</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>填写项</th><th>进入 Profile</th><th>当前运行影响</th></tr></thead>
+      <tbody>
+        <tr><td class="t-key">Q1–Q2</td><td><span class="mono">game_type</span></td><td>共同组成项目 / 世界观身份，进入提取与翻译提示。</td></tr>
+        <tr><td class="t-key">Q4–Q6</td><td><span class="mono">core_principle</span>、<span class="mono">extract_examples</span>、<span class="mono">extraction_notes</span></td><td>决定抓什么、不抓什么和边界规则；转换草稿必须人工核对，不能照收默认古风规则。</td></tr>
+        <tr><td class="t-key">Q7</td><td><span class="mono">term_categories</span></td><td>进入分类提示与投票选类；分类仍可能超纲，因此小样本必须查异常类别。</td></tr>
+        <tr><td class="t-key">Q9</td><td><span class="mono">translation_rules</span></td><td>注入需要 AI 新译的术语；术语表精确命中、双语原文照抄或“跳过翻译”不会走这套规则。</td></tr>
+        <tr><td class="t-key">Q10–Q11</td><td><span class="mono">fewshot_examples</span></td><td>正例与负例直接进入提取提示；负例的输出必须为空列表。</td></tr>
+        <tr><td class="t-key">Q3 / Q8 / Q12</td><td>任务说明 / 目标语 / 补充</td><td>Q3 与 Q12 当前不改变运行；Q8 当前也不能切换目标语，程序的新译目标固定为英文。若项目不是中→英，先停止并交工程评估，不能只改 Profile。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout warn"><b>禁止直接使用空白 YAML 模板：</b>当前 UI 只检查 YAML 能否解析，不检查字段契约、重复键、空项或业务一致性；“上传成功”不等于 Profile 可安全运行。</div>
+
+  <h3 id="extractor">主工具：安装、设置、提取与下载</h3>
+  <div class="steps">
+    <div class="step"><div class="s-body"><b>首装（Windows 10/11）。</b>在项目根目录先双击 <span class="ui">setup.bat</span>。它下载 64 位 Python 3.11.9 Embedded、启用 pip 并安装 <span class="mono">requirements.txt</span>；首次安装必须联网。完成后双击 <span class="ui blue">run.bat</span>。</div></div>
+    <div class="step"><div class="s-body"><b>启动。</b><span class="mono">run.bat</span> 会切换到自身所在目录并启动 Streamlit。浏览器未自动打开时，查看终端显示的地址，通常为 <span class="mono">localhost:8501</span>。不要关闭承载服务的终端窗口。</div></div>
+    <div class="step"><div class="s-body"><b>其他平台的技术入口。</b>在项目根目录、已有可用 Python 环境时，依次运行 <span class="mono">pip install -r requirements.txt</span> 与 <span class="mono">streamlit run ui/app.py</span>。这只是源码入口，其他平台未经过正式验证。</div></div>
+    <div class="step"><div class="s-body"><b>配置。</b>进入「设置」，先填写主生成服务的 <b>API 密钥</b>、地址和模型。NER、Embedding、表头识别默认继承主服务；若供应商不同，在「辅助 API 服务」中关闭继承并分别填写。各组都有独立连接测试。密钥只保存在当前进程内存，重启后从环境变量重新读取；在「项目规则与性能」选择已审核的版本化 Profile。</div></div>
+    <div class="step"><div class="s-body"><b>上传 xlsx。</b>在「提取术语」页上传必填的「源文本文件（xlsx）」；「已有双语术语表（xlsx）」可选。有效数据必须在第一个工作表；术语表中英文任一为空的行不会载入。</div></div>
+    <div class="step"><div class="s-body"><b>人工核对列。</b>确认「原文列」「Key列（可选）」「中文术语列」「英文翻译列」。有官方英文时开启「双语模式」并核对「原文英文列」；只提取不翻译时才开启「跳过翻译」。自动识别失败可能退回默认列，不能跳过这一步。</div></div>
+    <div class="step"><div class="s-body"><b>开始提取。</b>确认页面摘要中的 Profile、模型和并发后点 <span class="ui green">开始提取</span>。阶段依次显示初始化、加载、LLM 术语提取、匹配与翻译、完成；运行中可取消，但在途 API 请求不保证立即停止。</div></div>
+    <div class="step"><div class="s-body"><b>下载并留档。</b>完成后先核对页面提取数量和预览，再到「结果」下载「标注模板 xlsx」与「原始结果 xlsx」。浏览器副本进入默认下载目录或提示的用户选择位置；项目磁盘副本位于 <span class="mono">output/run_YYYYMMDD_HHMMSS/</span>。历史列表只直接下载原始结果；点「加载」后可重新生成候选模板，但须核对当前 Profile 与新文件名，因此仍建议当轮归档。</div></div>
+    <div class="step"><div class="s-body"><b>断点续跑。</b>只有原文、术语表、Profile 文件名与内容、模型、列设置和模式全部未变时才继续。当前断点身份不能自动证明这些内容一致；同名 Profile 被改过也可能混入旧结果。任一项变化就保留旧断点作证据并新开一轮，不点「继续」。</div></div>
+  </div>
+
+  <div class="callout warn"><b>首装纠偏：</b>不要只依赖“首次双击 run.bat 自动安装”的旧说明。若电脑已有系统 Python，<span class="mono">run.bat</span> 可能直接使用它而不安装依赖；可靠做法是首装先运行 <span class="mono">setup.bat</span>。</div>
+
+  <h3>主工具候选表字段</h3>
+  <p>当前源码生成的候选模板为以下 8 列，所有候选初始均为「未审核」：</p>
+  <div class="schema mono">Key值 / 术语分类 / 术语原文 / 术语译文 / 匹配来源 / 来源原文 / 审核状态 / 最新修订时间</div>
+  <p>「匹配来源」记录精确匹配、双语原文、AI 翻译或无需翻译等来源。保留候选表和原始结果，后续追溯时使用。</p>
+
+  <h3 id="annotation">标注工具：两次导入、审核、保存、导出与回流</h3>
+  <div class="steps">
+    <div class="step"><div class="s-body"><b>打开。</b>双击 <span class="path">annotation/术语标注助手_v3.0.html</span>，建议用 Chrome 或 Edge。它的 Excel 解析库已内嵌，可离线处理；使用浏览器本地草稿时要保持同一浏览器与用户配置。</div></div>
+    <div class="step"><div class="s-body"><b>第一次导入：原文。</b>点 <span class="ui blue">📥 导入原文Excel</span>，选择本轮原文文件。工具只读取第一个工作表；核对 <b>Key列 / 原文列 / 译文列</b>。从原文划词或整行新增时，工具记录实际添加行的 Key 与来源原文；只有来源字段缺失时，导出才尝试首个命中行回填。</div></div>
+    <div class="step"><div class="s-body"><b>第二次导入：候选术语。</b>点 <span class="ui blue">📋 导入术语表</span>，选择主工具下载的候选表。工具只读取第一个工作表；导入只硬性要求「术语原文」列，其他已识别字段按表头读取。导入后的非空 Key / 来源原文在导出时按原值保留。</div></div>
+    <div class="step"><div class="s-body"><b>选择合并策略。</b>「跳过已有」保留本地修改；「仅补空白字段」只补当前空值，适合合并 AI 增量结果；「覆盖已有」会替换已有内容。日常增量优先选 <b>仅补空白字段</b>，覆盖前先保存工程 JSON。</div></div>
+    <div class="step"><div class="s-body"><b>人工标注。</b>逐条核对术语是否应收、分类、译文、备注与来源。可在原文中划词按 <kbd>A</kbd>、点行首 ➕、按 <kbd>Q</kbd> 批量添加，或在右侧手动新增；<kbd>E</kbd> 编辑、<kbd>D</kbd> 删除只在原文单元格内选中已存在术语文本时生效，右侧列表使用对应按钮。</div></div>
+    <div class="step"><div class="s-body"><b>审核。</b>右侧 ✓ 在「未审核」与「已审核」间切换；黄 = 未审核，蓝 = 已审核，绿 = 译文在译文列命中。结合状态、分类、搜索和原文 / 译文筛选完成查漏。</div></div>
+    <div class="step"><div class="s-body"><b>保存现场。</b>按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 或点「保存项目」，下载 <span class="mono">term_project_*.json</span>。该工程含原文、术语、分类及列配置，可加载续作或交接。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；默认定时下载工程，浏览器每分钟草稿只兜底术语，不能代替人工归档。</div></div>
+    <div class="step"><div class="s-body"><b>导出审定表。</b>点「导出术语表 (8列模板)」，得到 <span class="mono">术语表_*.xlsx</span>。已有非空 Key / 来源按原值导出；只有缺失字段才从原始工作簿首个命中行回填。原文中不存在的手工术语可保持空白。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本，必须人工归档。</div></div>
+    <div class="step"><div class="s-body"><b>回流。</b>下一轮把审定表上传到主工具的「术语表文件」。UI 会尝试自动识别「术语原文 / 术语译文」，仍须人工确认。CLI 使用该 8 列表时，中文列与英文列为 0 基索引 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>，不能沿用默认 0 / 1。</div></div>
+  </div>
+
+  <h3>标注工具正式导出字段</h3>
+  <div class="schema mono">Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间</div>
+  <div class="callout warn"><b>两套 8 列不是同一结构。</b>候选表第 5 列是「匹配来源」，标注工具正式导出第 5 列是「备注」。候选表仍可正常导入，但标注工具不会把「匹配来源」写进备注；需要追溯时保留原始结果和候选表，不要要求两表列名零差异。</div>
+</section>
+
+<!-- 03 -->
+<section id="agent-operation">
+  <div class="sec-head">
+    <div class="sec-num">03</div>
+    <div class="sec-title-wrap"><h2>自然语言 Agent 操作</h2><div class="sec-en">Copy-ready agent prompts</div></div>
+  </div>
+
+  <p>下面四段可整段复制给有本机文件与终端权限的 Agent。先用指令 0 把 PM 填写表变成已审核 Profile，再执行环境检查与提取。标注工具没有公开 CLI，必须在浏览器中由人完成语义判断与审核；Agent 不得把“成功导出文件”替代为“人工审核已完成”。</p>
+
+  <h3>指令 0：把 PM 填写表转成待上传 Profile</h3>
+  <pre class="prompt"><code>任务：把 PM 填好的项目配置表转成一份可审计、待 PM 上传的正式 Profile；不运行提取，不调用外部 API。
+项目路径：[项目根目录绝对路径]
+输入：
+- PM 填写表：[项目配置填写表 xlsx 绝对路径]
+- Profile slug 与版本：[如 project_v01；使用稳定短名，不含路径片段]
+- 审校目录：[绝对路径]
+输出：
+- [审校目录]/[slug].yaml
+- [审校目录]/[slug]_Profile审校报告.md
+约束：
+1. 只读填写表，不改第三列示例或 PM 答案；只把第四列黄色区视为正式答案。
+2. Q1–Q7、Q10–Q11 任一空白则 FAIL；Q11 少于 3 条负例则 FAIL。Q8 非“英文/中→英”时停止并报告程序目标语不支持。
+3. 可先运行 import_project_form.py 生成 scaffold，但必须使用 --out 写入审校目录，不用 --force、不直接写 profiles/。脚本输出不能视为审校完成。
+4. 按 PM 原意规整 Q7 为逐项短分类；把 Q10 原文与术语(分类)配对成结构化正例；Q11 负例 output 必须为 []。不得编造世界观、专名或客户规则。
+5. 删除或裁决所有 TODO、默认占位和空列表项；Q3、Q8、Q12 的当前运行边界写进报告，不伪装为已生效规则。
+验证：
+1. 使用能拒绝重复键的方式检查 YAML，再用 yaml.safe_load 确认顶层是 mapping。
+2. 检查 game_type/core_principle 为非空字符串；extract_examples 为含 include/exclude 列表的对象；extraction_notes、term_categories、translation_rules 为字符串列表；fewshot_examples 每项有 input 与 list 类型 output。
+3. 禁止空字符串列表项；few-shot category 必须属于 term_categories；filterable_categories 必须是 term_categories 子集；rule_extractors 若存在则字段齐全。
+4. 不发 API 请求，直接调用本地 prompt 构建函数做冒烟检查，确认 PM 的 include/exclude、分类、正负例和翻译规则出现在预期提示中。
+5. 报告逐题列出“PM 单元格 → YAML 字段 → 运行影响”，记录哈希、检查结果、未生效项和结论。任一硬检查失败不得输出 PASS，也不得把 YAML 放入 profiles/。
+完成条件：YAML 与报告均存在，报告结论 PASS；之后由 PM 在 UI 上传并选择版本化 YAML。</code></pre>
+  <p class="copy-note">此指令只生成待上传配置与审校证据；不会覆盖现有 Profile，也不会产生计费请求。</p>
+
+  <h3>指令 A：只读环境与输入检查</h3>
+  <pre class="prompt"><code>任务：在不修改任何文件的前提下，检查游戏术语提取环境与输入。
+项目路径：[项目根目录绝对路径]
+输入：
+- 原文：[原文 xlsx 绝对路径]
+- 术语表：[术语表 xlsx 绝对路径]
+- Profile：[Profile 名]；已审核 YAML：[归档 YAML 绝对路径]
+- 预期原文 / Key / 官方英文列：[列名或 0 基索引]
+- 预期术语中文 / 英文列：[列名或 0 基索引]
+输出要求：把检查结果写入 [环境检查报告绝对路径]，并在终端给出 PASS / FAIL 摘要。
+约束：
+1. 只读检查，不安装依赖、不调用外部 API、不改源码或输入文件。
+2. 不读取、回显或记录 API Token；不得删除缓存、断点或输出。
+检查：
+1. 确认项目路径及 run.bat、setup.bat、cli.py、ui/app.py、requirements.txt 存在。
+2. 报告可用 Python 命令和版本，验证 requirements 中关键模块能否导入。
+3. 确认 profiles/[Profile 名].yaml 存在；与归档 YAML 的 SHA-256 完全一致，且已通过指令 0 的 Profile 审校。只有“可解析”但无审校报告时直接标 FAIL。
+4. 列出两份 xlsx 的全部工作表名，但只读取第一个工作表做业务检查；报告首表名称、数据行数、表头与建议的 0 基列索引。若有效数据不在首表，直接标 FAIL，不得用后续工作表替代。
+5. 对术语表首表分别计数：中英同时非空的有效行、仅中文为空、仅英文为空、两列都为空；明确后三类运行时会跳过。术语表必须有可索引的中英两列。
+6. 明确 Windows 为正式支持平台，其他平台只报告技术可运行性。
+失败报告：任一项失败立即标 FAIL，写明失败步骤、原始错误摘要、缺失文件 / 列及建议动作；不要为通过而修改预期。</code></pre>
+  <p class="copy-note">输出是一份可留档的检查报告；没有发起任何计费 API 请求。</p>
+
+  <h3>指令 B：按已确认列运行 CLI 提取</h3>
+  <pre class="prompt"><code>任务：使用 CLI 执行一轮游戏术语提取，并保留可复核产物。
+项目路径：[项目根目录绝对路径]
+输入：
+- 原文：[原文 xlsx 绝对路径]
+- 术语表：[术语表 xlsx 绝对路径]
+- Profile：[Profile 名]
+- 主生成服务 Base URL / 模型：[API Base URL] / [模型名]
+- NER 服务 Base URL / 模型：[可选，留空继承主服务]
+- Embedding 服务 Base URL / 模型：[可选，留空继承主服务]
+- 列索引：src=[原文列]，key=[Key列或省略]，gl_cn=[中文术语列]，gl_en=[英文译文列]
+- 输出目录：[输出目录绝对路径]
+- 并发上限：[正整数]
+输出要求：生成 results.xlsx、本轮候选术语标注表、实际 Profile YAML 快照，并写 [运行报告绝对路径]。
+约束：
+1. 先 cd 到项目路径；只读取输入，不改源码、Profile 或输入 xlsx。
+2. 所有 API 密钥只允许从现有环境变量读取：主服务 OPENAI_API_KEY，独立 NER/Embedding 分别使用 NER_API_KEY、EMBEDDING_API_KEY；不得回显、写进命令、配置、断点或报告。专用密钥缺失时沿用主服务。
+3. 使用有界并发；不得删除既有 output、database 或 checkpoint。
+4. 不自动操作 annotation/术语标注助手_v3.0.html，不声称完成人工审核。
+5. 开跑前把实际 profiles/[Profile 名].yaml 复制到输出目录，记录 SHA-256；若它与环境检查报告中的归档版本不同则停止。
+执行命令：
+python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" --base-url "[API Base URL]" --model "[模型名]" --output "[输出目录绝对路径]" --src-col [原文列] --concurrent [正整数]
+如有术语表，再加入 --glossary "[术语表 xlsx 绝对路径]" --gl-cn-col [中文术语列] --gl-en-col [英文译文列]；NER 或 Embedding 使用独立服务时，再加入对应的 --ner-base-url/--ner-model 或 --embedding-base-url/--embedding-model，密钥仍只从环境变量读取。
+若已确认 Key 列，再加入 --key-col [Key列]；若输入为官方双语，再加入 --bilingual --src-en-col [官方英文列]。
+检查：
+1. 进程退出码为 0，记录耗时与终端报告的术语数。
+2. 输出目录存在 results.xlsx 和一个候选模板；不要假定候选模板总是固定文件名。
+3. 两表数据行数等于终端术语数；候选表为 8 列、审核状态全为未审核。
+失败报告：失败时停止后续动作，记录失败阶段、退出码、脱敏错误摘要、断点目录和缺失产物；不得重写输入或降低验收标准。</code></pre>
+  <p class="copy-note">若解释器命令不是 python3，先在环境报告中记录实际命令，再等负责人确认。</p>
+
+  <h3>指令 C：只读验收主结果与人工审定表</h3>
+  <pre class="prompt"><code>任务：只读验收提取结果、候选表和人工审定术语表。
+项目路径：[项目根目录绝对路径]
+输入：
+- 原文：[原文 xlsx 绝对路径]
+- 主结果：[results.xlsx 绝对路径]
+- 候选表：[候选术语标注表绝对路径]
+- 人工审定表：[术语表_*.xlsx 绝对路径]
+- 本轮 Profile 快照：[输出目录内 YAML 绝对路径]
+- 标注操作记录：[包含导入、划词/整行新增、覆盖及人工修订的记录绝对路径；没有则写“缺失”]
+- 原文 / Key 列：[列名或 0 基索引]
+- 输出报告：[验收报告绝对路径]
+输出要求：生成包含文件清单、行数、字段、状态、Key / 来源核对、异常明细和结论的验收报告。
+约束：
+1. 只读；不得修表、删除重复项、补空值或调用外部 API。
+2. 分别使用两套字段契约：候选表第 5 列为“匹配来源”，人工审定表第 5 列为“备注”。
+3. 自动检查不能代替浏览器人工语义审核；无法验证的质量项必须标“待人工”。
+检查：
+1. 三份 xlsx 均可打开；本轮 Profile 快照存在且哈希与运行报告一致；主结果行数 = 候选表行数 = 提取完成数（如提供）。
+2. 候选表恰为 8 列，审核状态全为未审核；候选「Key值 / 来源原文」与主结果的 source_key / source_text 对应字段零差异。主结果 source_text 可能是清洗后的文本或双语拼接，不得强制等于原始单元格。
+3. 人工审定表列序为：Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间。
+4. 报告空术语、空译文、重复术语、未审核数量；发布门槛为未审核 0。
+5. 分层核对人工审定表来源：候选导入后已有的非空 Key / 来源按原值保留；从原文划词或整行新增的来源对应实际添加行，且该行原文包含术语；只有原来源字段缺失时，导出值才对应原始工作簿首个命中行；原文不存在的手工术语允许空并单列给 PM 确认。覆盖或人工修订必须有操作记录。若操作记录缺失，只自动核对候选导入记录；新增、覆盖、人工修订与回填来源标“待人工 / 不可验证”，不得据最终 xlsx 推断操作路径或作为自动硬失败。
+6. 给出人工抽检样本清单，不虚构分类、译文风格或语义正确率。
+失败报告：任一硬门槛失败即结论 FAIL，逐行列出文件、工作表、行号 / 术语、期望与实际；不要把真实差异改写成通过。</code></pre>
+  <p class="copy-note">验收报告是只读证据；人工审定仍在浏览器工具内完成。</p>
+</section>
+
+<!-- 04 -->
+<section id="acceptance">
+  <div class="sec-head">
+    <div class="sec-num">04</div>
+    <div class="sec-title-wrap"><h2>量化验收</h2><div class="sec-en">Acceptance checks</div></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>关口</th><th>检查方法</th><th>通过标准</th></tr></thead>
+      <tbody>
+        <tr><td class="t-key">PM 配置表</td><td>打开「项目信息填写表」首表，检查黄色第四列并逐题对照项目资料。</td><td>Q1–Q7、Q10–Q11 均有项目真实答案；Q11 至少 3 条负例；第三列示例未被覆盖。Q7 一行一类，Q10 每个“原文 → 术语(分类)”配对明确。</td></tr>
+        <tr><td class="t-key">Profile 结构</td><td>按指令 0 做重复键、YAML、类型、空项、分类引用和 prompt 冒烟检查。</td><td>全部硬检查 PASS；无未裁决 TODO / 默认占位；目标语为当前支持的英文；审校报告与版本化 YAML 均已归档。</td></tr>
+        <tr><td class="t-key">Profile 身份</td><td>比较 PM 归档 YAML、<span class="mono">profiles/</span> 实际文件和本轮输出内快照的 SHA-256。</td><td>三者完全一致；所选 Profile 名含明确版本；差异数 = 0。同名覆盖或缺少快照均不得发布。</td></tr>
+        <tr><td class="t-key">Profile 小样</td><td>由 PM / 语言负责人预先选代表性小样，逐条标记漏报、误报、分类错和译文问题。</td><td>达到项目开始前约定的口径；仓库没有通用语义正确率 SLA，未约定门槛或未完成人工结论时不得写“已验证准确率”。</td></tr>
+        <tr><td class="t-key">输入可用</td><td>列出原文与术语表的工作表，只检查首表；记录首表名、行数、表头和实际列索引，并统计术语中英列完整性。</td><td>两份 xlsx 都可读，有效数据都在首表；原文列存在；术语中文 / 英文列存在。术语有效行 = 中英同时非空行，任一为空的跳过数已报告；空术语表也保留两列表头。</td></tr>
+        <tr><td class="t-key">主工具数量</td><td>比较完成页数量、<span class="mono">results.xlsx</span> 数据行和候选表数据行。</td><td>三者数量完全相等；差异数 = 0。</td></tr>
+        <tr><td class="t-key">主工具文件</td><td>检查本轮输出目录与下载留档。</td><td>原始结果和候选模板各 1 份，均可打开；候选表初始「未审核」数 = 总行数。</td></tr>
+        <tr><td class="t-key">候选字段</td><td>按当前主工具契约检查 8 列及映射。</td><td>列名 / 顺序与本指南“主工具候选表字段”一致；候选 Key / 来源原文与主结果 source_key / source_text 差异数 = 0。source_text 可为清洗文本或双语拼接，不要求等于原始单元格。</td></tr>
+        <tr><td class="t-key">导入数量</td><td>在空白标注项目导入候选表，记录新增 / 更新 / 跳过和右侧术语总数。</td><td>术语总数 = 候选表非空「术语原文」去重数。若合并旧工程，则用“旧总数 + 新增数”核对并解释更新 / 跳过。</td></tr>
+        <tr><td class="t-key">正式 8 列</td><td>打开 <span class="mono">术语表_*.xlsx</span> 的「术语表」工作表。</td><td>恰好 8 列，顺序如下；数据行数 = 标注工具术语总数。</td></tr>
+        <tr><td class="t-key">审核状态</td><td>按「审核状态」计数。</td><td>发布版「未审核」= 0；状态空白或非“已审核 / 未审核”= 0。</td></tr>
+        <tr><td class="t-key">导入来源保留</td><td>结合候选表与操作记录，比较人工审定表的非空 Key / 来源字段。</td><td>有记录时，导入后非空值按原值保留；「仅补空白字段」不得覆盖本地已有非空来源，覆盖或人工修订差异须与记录一致。记录缺失时只能报告值差异，操作路径与差异正当性标“待人工 / 不可验证”，不作为自动硬失败。</td></tr>
+        <tr><td class="t-key">表内新增来源</td><td>按操作记录回查划词 / 整行新增时的实际添加行。</td><td>Key 与来源对应实际添加行，且该行所选原文列包含术语；不强制要求它是首个命中行。操作记录缺失时标“待人工 / 不可验证”，不据最终表反推。</td></tr>
+        <tr><td class="t-key">缺失回填 / 表外手工</td><td>按操作记录确认导出前缺失状态，并区分原文是否存在术语。</td><td>有记录时，仅缺失字段按原始工作簿首个命中行回填，已有字段不改；原文不存在的手工术语允许空并进入例外清单。记录缺失时无法从最终 xlsx 反推导出前状态，整项标“待人工 / 不可验证”，不作为自动硬失败。</td></tr>
+        <tr><td class="t-key">回流</td><td>把审定表上传到主工具，仅核对自动识别与手动列选择。</td><td>UI 正确选中「术语原文 / 术语译文」；CLI 明确使用 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>。</td></tr>
+        <tr><td class="t-key">人工语义</td><td>全查高风险项（空译文、来源缺失、专名）并抽检 <span class="mono">min(总数, max(20, 向上取整(总数×10%)))</span> 条。</td><td>术语边界、分类、译文风格和上下文无严重错误；发现的问题有责任人和修订记录。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="schema mono">Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间</div>
+  <div class="callout"><b>不能只靠脚本验收：</b>术语是否应收、分类是否符合项目口径、译文是否自然一致，必须人工判断。模型输出具有波动性，仓库没有语义正确率或耗时 SLA；报告应区分自动硬检查与人工结论。</div>
+</section>
+
+<!-- 05 -->
+<section id="recovery">
+  <div class="sec-head">
+    <div class="sec-num">05</div>
+    <div class="sec-title-wrap"><h2>常见问题与故障恢复</h2><div class="sec-en">Problems &amp; recovery</div></div>
+  </div>
+
+  <dl class="faq">
+    <dt>API 测试失败、401，或测试成功但提取仍失败</dt>
+    <dd>回到「设置」分别核对主生成、NER、Embedding 与表头识别服务的密钥来源、地址和模型，确认继承选项、网络与配额，再点击对应连接测试。连接测试会调用该服务实际使用的 Chat 或 Embedding 接口。报告实际失败阶段，不要把密钥发给他人。</dd>
+
+    <dt>run.bat 双击无反应，或提示缺 Python / 模块</dt>
+    <dd>从项目根目录先运行 <span class="mono">setup.bat</span>，确认下载与依赖安装均成功，再运行 <span class="mono">run.bat</span>。系统已有 Python 时，run.bat 可能不会自动安装依赖；可从终端运行它以保留错误信息。</dd>
+
+    <dt>setup.bat 下载或安装依赖失败</dt>
+    <dd>确认可访问 Python 与依赖源、磁盘空间足够，再重跑 setup.bat。不要删除可用的 <span class="mono">python/</span> 目录或改写 requirements 来掩盖错误；仍失败时把失败步骤和完整脱敏错误交给技术负责人。</dd>
+
+    <dt>浏览器没有自动打开主工具</dt>
+    <dd>保留终端窗口，等待 Streamlit 启动后打开终端显示的本地地址，通常是 <span class="mono">localhost:8501</span>。若仍打不开，检查终端是否退出、端口是否冲突，再按实际端口访问。</dd>
+
+    <dt>PM 填完配置表，但 UI 找不到 xlsx 上传入口</dt>
+    <dd>这是正常边界：填写表不是主工具输入。把版本化 xlsx 交给工程 / Agent，按本指南“指令 0”生成并审校 YAML；只有审校 PASS 的 <span class="mono">.yaml</span> 才在「设置 → 高级设置 → 项目配置」上传。</dd>
+
+    <dt>转换结果有 TODO、分类粘成一长串，或 Q10 正例没有进入 YAML</dt>
+    <dd>该文件仍是 scaffold，不能上传。把 Q7 改为一行一个短分类，把 Q10 每个“原文 → 术语(分类)”写在同一行；工程 / Agent 再逐题对照、裁决 TODO 与默认规则，并重跑结构和 prompt 冒烟检查。</dd>
+
+    <dt>上传新 Profile 后，旧同名版本不见了</dt>
+    <dd>当前 UI 同名上传会直接覆盖，没有确认或自动备份。停止运行，从归档恢复旧 YAML；以后先下载旧版并使用带版本的新文件名。不要依靠 <span class="mono">output/run_*/</span> 找回，因为运行输出不会自动保存 Profile 快照。</dd>
+
+    <dt>YAML 显示上传成功，但运行时报字段错误或结果异常</dt>
+    <dd>上传只证明 YAML 能被基础解析，不代表字段或业务规则正确。停止全量运行；检查重复键、字段类型、空字符串列表项、未解决占位、few-shot 分类和过滤分类，再用代表性小样复验。UI 的空白 YAML 模板不能绕过这一步。</dd>
+
+    <dt>项目目标语不是英文</dt>
+    <dd>当前新译提示固定为中文 → 英文，填写表 Q8 或 Profile 不能切换为日 / 韩等目标语。停止配置与运行，把需求交工程评估程序改造；不得把“已填写目标语”报告成“程序已支持”。</dd>
+
+    <dt>自动识别的列不对</dt>
+    <dd>在「运行」页手动选择原文、Key、官方英文、术语中文和术语英文列；CLI 列号从 0 开始。不要直接开始提取。标注工具也要分别核对 Key / 原文 / 译文列。</dd>
+
+    <dt>中断后没有从预期位置继续</dt>
+    <dd>在「所有断点」查看状态，单位是 chunks，不是 Excel 行。只有原文、术语表、Profile 名与内容、模型、列设置和模式全部相同时才续跑；系统不会完整校验这些不变量。同名 Profile 被改过或任一参数变化时新开一轮。断点通常每若干批写入，最近一批可能重做；成功完成后 UI 会清除断点。</dd>
+
+    <dt>标注工具提示恢复草稿</dt>
+    <dd>确认时间与术语数后恢复，再重新导入原文并核对三列。浏览器草稿只含术语，且受本地存储配额约束；立即另存 <span class="mono">term_project_*.json</span>，后续以该工程文件为正式续作依据。</dd>
+
+    <dt>导入术语表提示缺列</dt>
+    <dd>标注工具硬性要求「术语原文」表头；缺失就停止。主工具作为术语表输入则必须同时能指定中文与英文两列。先复制备份，再由负责人修正表头；不要把报错改写成兼容。</dd>
+
+    <dt>候选表是“匹配来源”，导出表却是“备注”</dt>
+    <dd>这是当前两工具的已验证接口差异，不是文件损坏。候选表可以导入，但“匹配来源”不会写进备注。追溯依赖原始结果 / 候选表；正式交付使用标注工具导出的“备注”结构。</dd>
+
+    <dt>大文件处理慢、页面像是停住</dt>
+    <dd>主工具保留服务终端并观察阶段 / 断点，不要只关闭标签页来假定任务已取消。标注工具导入大量数据后等待“索引就绪”，分阶段保存工程 JSON；浏览器草稿不含原文，内存或配额不足时按负责人批准拆分批次，并在最终合并时重新核对数量。</dd>
+
+    <dt>结果页找不到上次的候选模板</dt>
+    <dd>历史列表只直接提供原始 results 下载；先点该记录的「加载」，进入结果视图后可重新生成候选模板。重新生成前核对当前 Profile，下载后核对 8 列、行数和新文件名；也可优先使用 <span class="mono">output/run_*/</span> 的当轮磁盘副本。</dd>
+  </dl>
+
+  <div class="callout warn"><b>恢复原则：</b>保留 PM 填写表、实际 Profile YAML 与审校报告、原输入、断点、原始结果、候选表和最近的工程 JSON；先定位失败阶段，再重试。任何重试都要在报告中与首次运行数据分开记录。</div>
+</section>
+
+<footer>
+  <img src="data:image/jpeg;base64,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" alt="Langlobal">
+  <div class="f-text">LANGLOBAL · 游戏术语提取与标注 PM 使用指南 · 内部使用</div>
+</footer>
+
+</div>
+</body>
+</html>
