@@ -36,7 +36,7 @@ sys.modules.setdefault("openai", types.SimpleNamespace(
 import core.main as main
 
 
-def fake_ner_scan(batch_c, api_key, base_url):
+def fake_ner_scan(batch_c, api_key, base_url, model):
     return [], []
 
 

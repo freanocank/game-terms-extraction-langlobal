@@ -2,11 +2,18 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key
 output/
 input/
 database/
 test_file/*.xlsx
+.playwright-cli/
 .DS_Store
+.~*
+~$*
 *.egg-info/
 dist/
 build/
@@ -16,7 +23,3 @@ build/
 *.swo
 .ui_models.json
 .ui_config.json
-.ui_config.json
-output/
-database/
-__pycache__/

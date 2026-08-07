@@ -165,7 +165,7 @@ def main():
         require(value.startswith(("data:", "#")), f"external CSS url(): {value}")
     required_text = [
         "run.bat", "setup.bat", "streamlit run ui/app.py",
-        "annotation/术语标注助手_v3.0.html", "terms_extraction_results.xlsx",
+        "annotation/术语标注助手_v3.0.html", "results.xlsx",
         "term_project_", "术语表_", "仅补空白字段", "未审核",
         "Key值", "术语分类", "术语原文", "术语译文", "备注",
         "来源原文", "审核状态", "最新修订时间",
@@ -173,6 +173,8 @@ def main():
     ]
     for text in required_text:
         require(text in body_text, f"missing visible text: {text}")
+    require("terms_extraction_results.xlsx" not in body_text, "stale result filename")
+    require("/Users/" not in body_text, "personal absolute path")
     columns = [
         "Key值", "术语分类", "术语原文", "术语译文", "备注",
         "来源原文", "审核状态", "最新修订时间",

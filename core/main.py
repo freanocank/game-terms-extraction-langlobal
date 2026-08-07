@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import sys, os, time, signal, json, re, datetime
 import asyncio
+import hashlib
+from io import BytesIO
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -13,6 +15,10 @@ import jieba
 from openai import AsyncOpenAI
 
 _interrupted = False
+
+
+class PipelineInterruptedError(Exception):
+    pass
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -39,8 +45,17 @@ class PipelineOpts:
     max_concurrent: Optional[int] = None
     max_tokens: Optional[int] = None
     flag_unsourced: bool = True
+    ner_use_main: Optional[bool] = None
+    ner_api_key: Optional[str] = field(default=None, repr=False)
+    ner_base_url: Optional[str] = None
+    ner_model: Optional[str] = None
+    embedding_use_main: Optional[bool] = None
+    embedding_api_key: Optional[str] = field(default=None, repr=False)
+    embedding_base_url: Optional[str] = None
+    embedding_model: Optional[str] = None
 
 from config import EXTRACTOR_CONFIG, VOTE_TEMPS
+from config_template import DEFAULT_API_BASE, DEFAULT_EMBEDDING_MODEL, DEFAULT_MODEL, DEFAULT_PROFILE
 from core.prompt_base import build_system_prompt, build_user_prompt, build_translation_prompt
 from core.llm_extractor import LLMExtractor
 from core.llm_translator import TermTranslator
@@ -55,11 +70,18 @@ logger = logging.getLogger("pipeline")
 
 TEMPLATE_COLUMNS = ["Key值", "术语分类", "术语原文", "术语译文", "匹配来源", "来源原文", "审核状态", "最新修订时间"]
 MATCH_TYPE_SOURCE_LABELS = {
-    "exact": "精确匹配",
-    "bilingual": "双语原文",
-    "llm_translated": "AI翻译",
-    "no_translate": "无需翻译",
+    "exact": "沿用术语表",
+    "bilingual": "沿用原文英文",
+    "llm_translated": "AI 翻译",
+    "no_translate": "未生成译文",
 }
+
+
+def empty_glossary_bytes() -> bytes:
+    """Return a header-only glossary workbook accepted by the pipeline."""
+    output = BytesIO()
+    pd.DataFrame(columns=["中文术语", "英文译文"]).to_excel(output, index=False)
+    return output.getvalue()
 
 
 def _safe_filename_part(value: str) -> str:
@@ -125,6 +147,21 @@ def results_to_template_df(results: List[dict], timestamp: str = "") -> pd.DataF
     return pd.DataFrame(rows, columns=TEMPLATE_COLUMNS)
 
 
+def dataframe_to_xlsx_bytes(df: pd.DataFrame, sheet_name: str) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
+
+
+def results_workbook_bytes(results: List[dict]) -> bytes:
+    return dataframe_to_xlsx_bytes(pd.DataFrame(results), "完整结果")
+
+
+def template_workbook_bytes(results: List[dict]) -> bytes:
+    return dataframe_to_xlsx_bytes(results_to_template_df(results), "术语表")
+
+
 def save_outputs(results: List[dict], out_dir, profile_name: str = "",
                  source_path: str = "", run_date: str = "") -> Tuple[Path, Path]:
     """Write results.xlsx + annotation template files into out_dir, return primary paths."""
@@ -132,9 +169,8 @@ def save_outputs(results: List[dict], out_dir, profile_name: str = "",
     out.mkdir(parents=True, exist_ok=True)
     res_path = out / "results.xlsx"
     tpl_path = out / descriptive_template_filename(profile_name, source_path, run_date)
-    template_df = results_to_template_df(results)
-    pd.DataFrame(results).to_excel(res_path, index=False)
-    template_df.to_excel(tpl_path, index=False)
+    res_path.write_bytes(results_workbook_bytes(results))
+    tpl_path.write_bytes(template_workbook_bytes(results))
     return res_path, tpl_path
 
 _VAR_RE = re.compile(r'\$\{[^}]*\}|\$[a-zA-Z_]\w*|\$\d+|\{[^}]*\}|</?[a-zA-Z][^>]*>')
@@ -249,8 +285,6 @@ NER_SYSTEM = """从游戏中文文本中提取命名实体。严格按 JSON 格�
 - places: 所有地名、地点、场所、门派、组织。
 - 只输出 JSON，不要任何额外文字。"""
 
-NER_MODEL = "gemini-3.1-flash-lite"
-
 def _rule_extract(batch_c, profile):
     rules = profile.get("rule_extractors")
     if not rules:
@@ -267,7 +301,7 @@ def _rule_extract(batch_c, profile):
     return list(set(results))
 
 
-async def _ner_flash_batch(batch_c, api_key, base_url):
+async def _ner_flash_batch(batch_c, api_key, base_url, model):
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=30, max_retries=1)
     sem = asyncio.Semaphore(5)
     results = {}
@@ -276,7 +310,7 @@ async def _ner_flash_batch(batch_c, api_key, base_url):
         async with sem:
             async def _req():
                 resp = await client.chat.completions.create(
-                    model=NER_MODEL,
+                    model=model,
                     messages=[{"role": "system", "content": NER_SYSTEM}, {"role": "user", "content": text}],
                     temperature=0, max_tokens=2048,
                 )
@@ -307,8 +341,8 @@ async def _ner_flash_batch(batch_c, api_key, base_url):
     return list(all_persons), list(all_places)
 
 
-def _ner_scan(batch_c, api_key, base_url):
-    return asyncio.run(_ner_flash_batch(batch_c, api_key, base_url))
+def _ner_scan(batch_c, api_key, base_url, model):
+    return asyncio.run(_ner_flash_batch(batch_c, api_key, base_url, model))
 
 
 def _collect_llm_votes(raw_v_all):
@@ -400,10 +434,12 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
 
     start_idx = 0
     results = []
+    last_completed = 0
     if checkpoint_dir:
         ckpt = ckpt_load(checkpoint_dir)
         if ckpt["chunk_idx"] > 0:
             start_idx = ckpt["chunk_idx"]
+            last_completed = start_idx
             results = ckpt["terms"]
             logger.info(f"Checkpoint: resume from chunk {start_idx}/{len(chunks)}, {len(results)} terms")
 
@@ -425,7 +461,12 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
         if progress_callback:
             progress_callback("extracting", end, len(chunks),
                               f"NER 预扫描 chunk {i+1}-{end}…")
-        ner_persons, ner_places = _ner_scan(batch_c, api_key, base_url)
+        ner_persons, ner_places = _ner_scan(
+            batch_c,
+            opts.ner_api_key or api_key,
+            opts.ner_base_url or base_url,
+            opts.ner_model or model,
+        )
         if progress_callback:
             progress_callback("extracting", end, len(chunks),
                               f"NER done, starting LLM votes for chunk {i+1}-{end}…")
@@ -452,6 +493,7 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
         llm_votes = _collect_llm_votes(raw_v_all)
         batch_results = _count_llm_votes(llm_votes, profile.get("term_categories"))
         results.extend(batch_results)
+        last_completed = end
 
         dt = time.time() - t_batch
         pct = end / len(chunks) * 100
@@ -464,6 +506,16 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
 
         if checkpoint_dir and (end % (concurrent * 2) == 0 or end == len(chunks)):
             ckpt_save(checkpoint_dir, end, _context_snapshot_for_checkpoint(results, texts, text_keys), len(chunks))
+
+    if _interrupted:
+        if checkpoint_dir:
+            ckpt_save(
+                checkpoint_dir,
+                last_completed,
+                _context_snapshot_for_checkpoint(results, texts, text_keys),
+                len(chunks),
+            )
+        raise PipelineInterruptedError("Extraction interrupted; checkpoint preserved")
 
     seen = {}
     for t in results:
@@ -549,12 +601,15 @@ def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
     return [_clean(d) for d in exact_matched + bilingual_copied + translated]
 
 
-def run_pipeline(source_path: str, glossary_path: str, profile_name: str = "yanyun",
-                 api_key: str = "", base_url: str = "https://api.openai.com/v1",
-                 model: str = "gemini-3.1-pro-preview",
+def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAULT_PROFILE,
+                 api_key: str = "", base_url: str = DEFAULT_API_BASE,
+                 model: str = DEFAULT_MODEL,
                  output_dir: str = "", raw_dir: str = "", checkpoint_dir: str = "",
                  progress_callback: callable = None,
                  opts: PipelineOpts = PipelineOpts()) -> List[dict]:
+
+    global _interrupted
+    _interrupted = False
 
     if not output_dir:
         output_dir = "output"
@@ -565,8 +620,16 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = "yany
             "src_col": opts.src_col, "gl_cn_col": opts.gl_cn_col, "gl_en_col": opts.gl_en_col,
             "bilingual": opts.bilingual, "src_en_col": opts.src_en_col, "no_translate": opts.no_translate,
             "key_col": opts.key_col,
+            "profile": profile_name, "model": model,
+            "ner_use_main": opts.ner_use_main,
+            "ner_base_url": opts.ner_base_url or base_url,
+            "ner_model": opts.ner_model or model,
+            "embedding_use_main": opts.embedding_use_main,
+            "embedding_base_url": opts.embedding_base_url or base_url,
+            "embedding_model": opts.embedding_model or DEFAULT_EMBEDDING_MODEL,
             "src_filename": existing_meta.get("src_filename") or Path(source_path).name,
             "gl_filename": existing_meta.get("gl_filename") or Path(glossary_path).name,
+            "glossary_hash": hashlib.md5(Path(glossary_path).read_bytes()).hexdigest()[:8],
         })
         source_path, glossary_path = ckpt_save_inputs(checkpoint_dir, source_path, glossary_path)
     profile = load_config(profile_name)
@@ -574,14 +637,22 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = "yany
     for gk in glossary_keys:
         jieba.suggest_freq(gk, tune=True)
 
-    db_path = ROOT / "database" / "glossary_embeddings.db"
-    db_path.parent.mkdir(exist_ok=True)
-    embed_store = EmbedStore(str(db_path), api_key, base_url)
-    if not opts.no_translate:
+    embed_store = None
+    if not opts.no_translate and glossary_keys:
+        db_path = ROOT / "database" / "glossary_embeddings.db"
+        db_path.parent.mkdir(exist_ok=True)
+        embed_store = EmbedStore(
+            str(db_path),
+            opts.embedding_api_key or api_key,
+            opts.embedding_base_url or base_url,
+            opts.embedding_model or DEFAULT_EMBEDDING_MODEL,
+        )
         if progress_callback:
             progress_callback("loading", 0, 1, f"同步术语向量库 ({len(glossary_keys)} 条)…")
         added, removed = embed_store.sync(list(glossary_keys), progress=progress_callback, workers=opts.embed_workers)
         logger.info(f"Embedding store synced: +{added} added, -{removed} removed, {embed_store.count} total")
+    elif not opts.no_translate:
+        logger.info("No reference glossary supplied; skipping embedding-store sync")
 
     df_src = pd.read_excel(source_path)
     def _key_str(v):

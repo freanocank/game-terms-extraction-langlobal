@@ -77,7 +77,7 @@ def main():
             assert href[1:] in parser.ids, href
     required_text = [
         "run.bat", "setup.bat", "streamlit run ui/app.py",
-        "annotation/术语标注助手_v3.0.html", "terms_extraction_results.xlsx",
+        "annotation/术语标注助手_v3.0.html", "results.xlsx",
         "term_project_", "术语表_", "仅补空白字段", "未审核",
         "Key值", "术语分类", "术语原文", "术语译文", "备注",
         "来源原文", "审核状态", "最新修订时间",
@@ -147,7 +147,7 @@ Use these exact top-level IDs and coverage:
 <section id="recovery">API、Python、依赖、浏览器、列识别、断点、草稿、列缺失、大文件</section>
 ```
 
-Each Agent prompt must include project path `/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal`, input placeholders, output requirement, constraints, checks, and explicit failure reporting. State that annotation has no public CLI and requires browser-based human review.
+Each Agent prompt must include the project-root placeholder `[项目根目录绝对路径]`, input placeholders, output requirement, constraints, checks, and explicit failure reporting. State that annotation has no public CLI and requires browser-based human review.
 
 - [ ] **Step 4: Add responsive and print-safe styles**
 

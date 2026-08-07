@@ -4,6 +4,7 @@
 import sys
 import tempfile
 from pathlib import Path
+import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -47,6 +48,8 @@ with tempfile.TemporaryDirectory() as tmp:
         and tpl_path.name in saved_files
         and len(saved_files) == 2
     )
+    result_sheets = pd.ExcelFile(res_path).sheet_names
+    template_sheets = pd.ExcelFile(tpl_path).sheet_names
 
 CASES = [
     ("column order matches template", list(df.columns) == TEMPLATE_COLUMNS),
@@ -57,9 +60,9 @@ CASES = [
     ("source_key -> Key值", df.loc[0, "Key值"] == "DLG_001"),
     ("missing source_key -> empty Key值", df.loc[1, "Key值"] == "" and df.loc[2, "Key值"] == ""),
     ("remarks column renamed to match source", "匹配来源" in df.columns and "备注" not in df.columns),
-    ("exact match source value is direct", value(0, "匹配来源") == "精确匹配"),
-    ("no_translate match source value is direct", value(1, "匹配来源") == "无需翻译"),
-    ("AI translation match source value is direct", value(2, "匹配来源") == "AI翻译"),
+    ("exact match source value is clear", value(0, "匹配来源") == "沿用术语表"),
+    ("no_translate match source value is clear", value(1, "匹配来源") == "未生成译文"),
+    ("AI translation match source value is clear", value(2, "匹配来源") == "AI 翻译"),
     ("审核状态 all 未审核", (df["审核状态"] == "未审核").all()),
     ("timestamp applied", (df["最新修订时间"] == "2026-06-11T12:00:00").all()),
     ("NaN/None -> empty string", df.loc[2, "来源原文"] == "" and df.loc[2, "术语译文"] == ""),
@@ -74,6 +77,8 @@ CASES = [
     ("descriptive template filename falls back to legacy default without context",
      descriptive_template_filename() == DEFAULT_TEMPLATE_FILENAME),
     ("save_outputs writes only results and the descriptive template when context exists", save_outputs_ok),
+    ("CLI and UI result workbook uses the shared sheet name", result_sheets == ["完整结果"]),
+    ("CLI and UI template workbook uses the shared sheet name", template_sheets == ["术语表"]),
 ]
 
 n_pass = 0

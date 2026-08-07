@@ -19,6 +19,7 @@ import sys
 import shutil
 import zipfile
 import py_compile
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,13 +38,14 @@ FILES = [
     "run.bat",
     "setup.bat",
     "README.md",
+    "README_ZH.md",
     "LICENSE",
     ".streamlit/config.toml",
     "assets/logo.jpeg",
     "annotation/术语标注助手_v3.0.html",
     "annotation/README.md",
     "annotation/docs/操作指南_术语标注助手.html",
-    "docs/DEPLOY.txt",
+    "docs/PM使用指南_游戏术语提取与标注.html",
     "docs/ARCHITECTURE.md",
     "docs/CHANGELOG.md",
     "docs/Profile撰写指南.html",
@@ -55,6 +57,13 @@ DIRS = ["core", "ui", "profiles"]
 PRUNE_DIRS = {"__pycache__", ".git", ".idea", ".vscode"}
 PRUNE_SUFFIX = {".pyc", ".pyo", ".swp", ".swo"}
 PRUNE_NAMES = {".DS_Store"}
+
+SECRET_PATTERNS = (
+    re.compile(rb"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(rb"AIza[0-9A-Za-z_-]{20,}"),
+    re.compile(rb"gh[pousr]_[A-Za-z0-9_]{20,}"),
+    re.compile(rb"xox[baprs]-[A-Za-z0-9-]{20,}"),
+)
 
 
 def keep(path: Path) -> bool:
@@ -94,6 +103,17 @@ def copy_dir(rel: str):
     return n
 
 
+def scan_secrets(root: Path) -> list[str]:
+    hits = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        data = path.read_bytes()
+        if any(pattern.search(data) for pattern in SECRET_PATTERNS):
+            hits.append(str(path.relative_to(root)))
+    return hits
+
+
 def main():
     if DIST.exists():
         shutil.rmtree(DIST)
@@ -114,6 +134,15 @@ def main():
         raw = p.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
         p.write_bytes(raw)
         print(f"  {p.relative_to(STAGE)}")
+
+    print("== Secret scan ==")
+    secret_hits = scan_secrets(STAGE)
+    if secret_hits:
+        for path in secret_hits:
+            print(f"  FAIL possible credential: {path}")
+        print("  Package aborted; remove or externalize credentials first.")
+        return 1
+    print("  no credential patterns found")
 
     # Static verification: every staged .py must compile
     print("== Compile check ==")

@@ -65,6 +65,7 @@ ol.tight li, ul.tight li { margin: 5px 0; }
 /* Flow */
 .flow { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 24px 22px 18px; margin: 14px 0 6px; }
 .flow-line { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; row-gap: 14px; }
+.flow-line + .flow-line { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--hairline); }
 .node { font-size: 13px; padding: 8px 16px; border-radius: 10px; white-space: nowrap; }
 .node.file { font-family: var(--mono); font-size: 12px; background: var(--paper); border: 1px dashed var(--ink-soft); color: var(--ink-soft); }
 .node.engine { background: var(--blue-tint); border: 1.5px solid var(--blue-deep); color: var(--blue-deep); font-weight: 700; }
@@ -181,10 +182,10 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
   <div class="title-block">
     <div class="doc-kind">PM Usage Guide · PM 使用指南</div>
     <h1>游戏术语提取 <span class="dot">·</span> 人工标注</h1>
-    <div class="subtitle">面向项目经理的完整操作手册：从两份 Excel 提取候选词，经浏览器人工审核，再把审定术语表回流下一轮。</div>
+    <div class="subtitle">面向项目经理的完整操作手册：先填项目配置包并定稿 Profile，再提取候选词、人工审核并回流术语表。</div>
     <div class="meta-row">
       <span class="chip hot"><b>正式支持 Windows 10/11</b></span>
-      <span class="chip">主工具 + 标注工具</span>
+      <span class="chip">PM 配置包 + 主工具 + 标注工具</span>
       <span class="chip">标注环节离线</span>
       <span class="chip">PM 全流程验收</span>
     </div>
@@ -197,6 +198,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
   <a href="#agent-operation">03 Agent 操作</a>
   <a href="#acceptance">04 验收</a>
   <a href="#recovery">05 故障恢复</a>
+  <a href="#profile-intake">Profile 配置包</a>
   <a href="#extractor">主工具</a>
   <a href="#annotation">标注工具</a>
 </nav>
@@ -208,10 +210,17 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="sec-title-wrap"><h2>用途与准备</h2><div class="sec-en">Purpose &amp; preparation</div></div>
   </div>
 
-  <p>这份指南覆盖一条可交接、可验收的闭环：主提取工具从游戏原文与已有术语表生成候选词，标注工具负责人工修订与审核，审定后的术语表再作为下一轮提取输入。</p>
+  <p>这份指南覆盖一条可交接、可验收的闭环：PM 先用项目配置包提交项目口径，工程 / Agent 将其转成已审核 Profile；主提取工具再从游戏原文与已有术语表生成候选词，标注工具负责人工修订与审核，审定后的术语表回流下一轮。</p>
   <div class="callout"><b>平台边界：</b>正式支持平台：Windows 10/11。其他平台未经过正式验证；仓库只提供通用 Python / Streamlit 技术命令，不代表 macOS 或 Linux 已完成兼容性验收。主提取工具调用外部 API，安装与运行通常需要网络；标注工具本身为离线单 HTML，表格数据不上传。</div>
 
   <div class="flow" aria-label="术语提取、人工标注与回流闭环">
+    <div class="flow-line">
+      <span class="node file">项目配置填写表.xlsx</span>
+      <span class="arrow">→</span>
+      <span class="node engine">工程 / Agent · 转换 + 语义审校</span>
+      <span class="arrow">→</span>
+      <span class="node file">已审核 Profile.yaml</span>
+    </div>
     <div class="flow-line">
       <span class="node file">原文.xlsx + 已有术语表.xlsx</span>
       <span class="arrow">→</span>
@@ -231,13 +240,14 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <table>
       <thead><tr><th>项目</th><th>PM 需要确认</th></tr></thead>
       <tbody>
-        <tr><td class="t-key">工作目录</td><td>进入同时含 <span class="mono">run.bat</span>、<span class="mono">setup.bat</span>、<span class="mono">ui/</span>、<span class="mono">annotation/</span> 的项目根目录。本文 Agent 指令使用已核验路径：<span class="path">/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal</span>。</td></tr>
-        <tr><td class="t-key">API / 模型</td><td>准备 OpenAI 兼容的 API Token、API Base URL 与可用模型名。Token 只在可信本机录入，不放进文档、截图或聊天。</td></tr>
-        <tr><td class="t-key">Profile</td><td>确认对应游戏的 <span class="mono">profiles/*.yaml</span> 已存在，或准备可上传的 YAML。Profile 决定分类、提取与翻译规则。</td></tr>
+        <tr><td class="t-key">工作目录</td><td>进入同时含 <span class="mono">run.bat</span>、<span class="mono">setup.bat</span>、<span class="mono">ui/</span>、<span class="mono">annotation/</span> 的项目根目录。本文 Agent 指令统一使用占位符：<span class="path">[项目根目录绝对路径]</span>。</td></tr>
+        <tr><td class="t-key">API / 模型</td><td>准备兼容 OpenAI 的主生成服务密钥、Base URL 与模型名。NER、Embedding、表头识别默认继承主服务，也可分别配置独立密钥、地址和模型。密钥只在可信本机录入，不放进文档、截图或聊天。</td></tr>
+        <tr><td class="t-key">PM 配置包</td><td>正式输入为「游戏术语抽取-项目配置包」中的 <span class="mono">Profile撰写指南.html</span> 与 <span class="mono">项目配置填写表.xlsx</span>；项目内 <span class="mono">docs/</span> 有同版副本。PM 只填黄色最后一列，不能把 xlsx 直接上传到主工具。</td></tr>
+        <tr><td class="t-key">Profile</td><td>工程 / Agent 将填写表转成并审校为版本化 <span class="mono">profiles/*.yaml</span>。它决定提取口径、分类、后过滤及部分翻译规则；PM 开跑前必须核对所选文件名与归档版本一致。</td></tr>
         <tr><td class="t-key">原文 xlsx</td><td>至少有一列待提取中文原文；建议同时保留稳定 Key / ID。双语模式还要有官方英文列。<b>有效数据必须放在第一个工作表</b>，该表首行为表头。</td></tr>
-        <tr><td class="t-key">术语表 xlsx</td><td>第一个工作表至少有可指定的中文术语列和英文译文列，方向为中文 → 英文。主工具只载入<b>中文与英文同时非空</b>的行；任一列为空即跳过。没有历史术语时也要提供一份保留这两列表头的空 xlsx。</td></tr>
+        <tr><td class="t-key">术语表 xlsx</td><td>可选。上传时，第一个工作表至少有可指定的中文术语列和英文译文列，方向为中文 → 英文；主工具只载入<b>中文与英文同时非空</b>的行。没有历史术语时可不上传，系统会直接提取并生成新译文。</td></tr>
         <tr><td class="t-key">工作表限制</td><td>主工具与标注工具都只读取每个工作簿的<b>第一个工作表</b>；后续工作表不会自动合并或作为回退。原文、已有术语、候选术语都要放在首表。</td></tr>
-        <tr><td class="t-key">不变量</td><td>两个输入都必须是可读取的 <span class="mono">.xlsx</span>；列号在 CLI 中从 0 开始。主工具会清理占位符 / 标签，并跳过空值、纯标点与重复原文。</td></tr>
+        <tr><td class="t-key">不变量</td><td>原文必须是可读取的 <span class="mono">.xlsx</span>，术语表如提供也必须是 <span class="mono">.xlsx</span>；列号在 CLI 中从 0 开始。主工具会清理占位符 / 标签，并跳过空值、纯标点与重复原文。</td></tr>
       </tbody>
     </table>
   </div>
@@ -247,14 +257,16 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <table>
       <thead><tr><th>产物</th><th>分类</th><th>位置与用途</th></tr></thead>
       <tbody>
+        <tr><td class="t-key">PM Profile 填写表</td><td><span class="tag internal">项目输入</span></td><td>PM 填好的版本化 <span class="mono">项目配置填写表.xlsx</span>。它不进入主工具；与最终 YAML、审校报告一并归档，用于证明项目口径来源。</td></tr>
+        <tr><td class="t-key">已审核 Profile</td><td><span class="tag internal">项目配置</span></td><td><span class="mono">profiles/&lt;slug_版本&gt;.yaml</span>。UI 上传后保存到该目录；同名上传会直接覆盖。运行输出不会自动附带 YAML 副本或内容哈希，必须人工随本轮结果归档。</td></tr>
         <tr><td class="t-key">候选术语标注表</td><td><span class="tag download">可下载</span></td><td>结果页下载名通常为 <span class="mono">[Profile]_[原文描述]_候选术语标注表_YYYYMMDD.xlsx</span>；无上下文时回退 <span class="mono">候选术语_模板.xlsx</span>。浏览器副本进入默认下载目录或浏览器提示的用户选择位置；项目内另存于 <span class="mono">output/run_*/</span>。历史列表只直接下载原始结果；加载该历史结果后可重新生成候选模板，须核对当前 Profile 与生成文件名。</td></tr>
-        <tr><td class="t-key">原始结果</td><td><span class="tag download">可下载</span></td><td>当前 Session 下载名 <span class="mono">terms_extraction_results.xlsx</span>，进入浏览器默认下载目录或提示的用户选择位置；项目内 <span class="mono">output/run_*/results.xlsx</span> 是磁盘副本，用于追溯字段和匹配来源。</td></tr>
+        <tr><td class="t-key">原始结果</td><td><span class="tag download">可下载</span></td><td>当前 Session 下载名 <span class="mono">results.xlsx</span>，进入浏览器默认下载目录或提示的用户选择位置；项目内 <span class="mono">output/run_*/results.xlsx</span> 是磁盘副本，用于追溯字段和匹配来源。</td></tr>
         <tr><td class="t-key">提取进度 / 图表 / 预览</td><td><span class="tag display">仅显示</span></td><td>Streamlit 页面中的数量、阶段、匹配分布、分类分布和表格预览；页面显示本身不是交付文件。</td></tr>
         <tr><td class="t-key">标注工程</td><td><span class="tag download">可下载</span></td><td><span class="mono">term_project_*.json</span>，包含原文、术语库、分类与列配置。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档后再续作或交接。</td></tr>
         <tr><td class="t-key">审定术语表</td><td><span class="tag download">可下载</span></td><td><span class="mono">术语表_*.xlsx</span>，标注工具正式 8 列导出。文件只进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；必须人工归档，作为交付物及下一轮术语表输入。</td></tr>
         <tr><td class="t-key">断点</td><td><span class="tag temp">临时</span></td><td><span class="mono">output/_checkpoints/</span> 下的续跑状态与输入副本；UI 成功完成后清理，异常或取消后保留。</td></tr>
         <tr><td class="t-key">浏览器草稿</td><td><span class="tag internal">内部</span></td><td>浏览器本地存储中的术语草稿；只兜底术语，不含原文，也不是可交接文件。</td></tr>
-        <tr><td class="t-key">缓存 / 调试 / 配置</td><td><span class="tag internal">内部</span></td><td><span class="mono">database/</span>、<span class="mono">raw_data/</span>、<span class="mono">.ui_config.json</span> 等。不要当交付物；配置文件含明文 API 信息时不得外发。</td></tr>
+        <tr><td class="t-key">缓存 / 调试 / 配置</td><td><span class="tag internal">内部</span></td><td><span class="mono">database/</span>、<span class="mono">raw_data/</span>、<span class="mono">.ui_config.json</span> 等。不要当交付物；API 密钥不会写入这些文件、断点或导出结果。</td></tr>
       </tbody>
     </table>
   </div>
@@ -267,17 +279,47 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="sec-title-wrap"><h2>手动启动与完整闭环</h2><div class="sec-en">Manual operation</div></div>
   </div>
 
+  <h3 id="profile-intake">Profile 配置包：PM 填写、审校与加载</h3>
+  <div class="callout"><b>正式分工：</b>PM 的入口是配置包 Excel；UI 中“下载 YAML 配置模板”是技术备用入口，不能替代项目填表。xlsx 不能直接上传，转换脚本也只生成待审草稿；只有通过结构与语义审校的 YAML 才能进入 <span class="mono">profiles/</span>。</div>
+
+  <div class="steps">
+    <div class="step"><div class="s-body"><b>打开配置包。</b>使用「游戏术语抽取-项目配置包」中的 <span class="mono">Profile撰写指南.html</span> 与 <span class="mono">项目配置填写表.xlsx</span>；项目 <span class="mono">docs/</span> 下有内容完全相同的副本。配置包只含指南和填写表，不含可直接运行的 YAML。</div></div>
+    <div class="step"><div class="s-body"><b>只填黄色最后一列。</b>第三列是燕云参考示例，不要覆盖。交接门槛为 Q1–Q7、Q10–Q11 已填写；Q8–Q9 与 Q12 按表中标记选填。Q4 / Q5 写清提取与排除边界，Q6 写可判定的硬规则，Q11 至少给 3–5 条整句无术语或易误判负例。</div></div>
+    <div class="step"><div class="s-body"><b>按可转换格式填写。</b>Q7 每行只写一个短分类名；Q10 每个正例把“原文 → 术语(分类)、术语(分类)”写在同一行；Q11 每行一条负例。当前转换器不会可靠拆分一行中的多个分类，也不会把断成两行的 Q10 原文与答案自动配对。</div></div>
+    <div class="step"><div class="s-body"><b>版本化交接。</b>另存为 <span class="mono">[项目slug]_项目配置填写表_v01.xlsx</span>，连同源文、已有术语表和客户口径交给工程 / Agent。不要在 PM 原表上直接改第三列示例，也不要用同一个文件名覆盖已确认版本。</div></div>
+    <div class="step"><div class="s-body"><b>转换为待审草稿。</b>PM 不需要运行命令。技术人员在源码仓库根目录执行下方命令，把草稿写入审校目录而不是直接写进 <span class="mono">profiles/</span>；不得使用 <span class="mono">--force</span>。若交付包内没有 <span class="mono">scripts/</span>，由具备源码仓库的工程 / Agent 转换。<div class="schema mono">python3 scripts/import_project_form.py "[已填写 xlsx 绝对路径]" --slug "[稳定短名]" --out "[审校目录]/[slug]_v01.yaml"</div></div></div>
+    <div class="step"><div class="s-body"><b>结构与语义审校。</b>确认 YAML 顶层是对象，字段类型正确，无重复键、空列表项、未解决的 <span class="mono">TODO</span> / 默认占位；逐项对照填写表，规整分类与正例，确保 few-shot 分类属于 <span class="mono">term_categories</span>、过滤分类也在分类表内。脚本输出的默认规则不能当成客户已确认口径。</div></div>
+    <div class="step"><div class="s-body"><b>上传并选择。</b>在「设置 → 高级设置 → 项目配置（Profile）」上传已审核 <span class="mono">.yaml</span>，再在「已有配置」选择它。上传同名文件会直接覆盖现有版本；替换前先下载旧 YAML 留档，日常使用带版本的新文件名。直接放进 <span class="mono">profiles/</span> 时只使用 <span class="mono">.yaml</span> 并重启。</div></div>
+    <div class="step"><div class="s-body"><b>小样本确认后冻结。</b>用一个代表性小样检查漏报、误报、分类和译文；通过后把填写表、实际 YAML、审校报告和小样结果放进同一归档目录。Profile 内容、术语表、模型、列设置或模式有变化时新开一轮，不续用旧断点。</div></div>
+  </div>
+
+  <h3>填写项如何影响当前程序</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>填写项</th><th>进入 Profile</th><th>当前运行影响</th></tr></thead>
+      <tbody>
+        <tr><td class="t-key">Q1–Q2</td><td><span class="mono">game_type</span></td><td>共同组成项目 / 世界观身份，进入提取与翻译提示。</td></tr>
+        <tr><td class="t-key">Q4–Q6</td><td><span class="mono">core_principle</span>、<span class="mono">extract_examples</span>、<span class="mono">extraction_notes</span></td><td>决定抓什么、不抓什么和边界规则；转换草稿必须人工核对，不能照收默认古风规则。</td></tr>
+        <tr><td class="t-key">Q7</td><td><span class="mono">term_categories</span></td><td>进入分类提示与投票选类；分类仍可能超纲，因此小样本必须查异常类别。</td></tr>
+        <tr><td class="t-key">Q9</td><td><span class="mono">translation_rules</span></td><td>注入需要 AI 新译的术语；术语表精确命中、双语原文照抄或“跳过翻译”不会走这套规则。</td></tr>
+        <tr><td class="t-key">Q10–Q11</td><td><span class="mono">fewshot_examples</span></td><td>正例与负例直接进入提取提示；负例的输出必须为空列表。</td></tr>
+        <tr><td class="t-key">Q3 / Q8 / Q12</td><td>任务说明 / 目标语 / 补充</td><td>Q3 与 Q12 当前不改变运行；Q8 当前也不能切换目标语，程序的新译目标固定为英文。若项目不是中→英，先停止并交工程评估，不能只改 Profile。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout warn"><b>禁止直接使用空白 YAML 模板：</b>当前 UI 只检查 YAML 能否解析，不检查字段契约、重复键、空项或业务一致性；“上传成功”不等于 Profile 可安全运行。</div>
+
   <h3 id="extractor">主工具：安装、设置、提取与下载</h3>
   <div class="steps">
     <div class="step"><div class="s-body"><b>首装（Windows 10/11）。</b>在项目根目录先双击 <span class="ui">setup.bat</span>。它下载 64 位 Python 3.11.9 Embedded、启用 pip 并安装 <span class="mono">requirements.txt</span>；首次安装必须联网。完成后双击 <span class="ui blue">run.bat</span>。</div></div>
     <div class="step"><div class="s-body"><b>启动。</b><span class="mono">run.bat</span> 会切换到自身所在目录并启动 Streamlit。浏览器未自动打开时，查看终端显示的地址，通常为 <span class="mono">localhost:8501</span>。不要关闭承载服务的终端窗口。</div></div>
     <div class="step"><div class="s-body"><b>其他平台的技术入口。</b>在项目根目录、已有可用 Python 环境时，依次运行 <span class="mono">pip install -r requirements.txt</span> 与 <span class="mono">streamlit run ui/app.py</span>。这只是源码入口，其他平台未经过正式验证。</div></div>
-    <div class="step"><div class="s-body"><b>配置。</b>进入「设置」，填写 <b>API Token</b> 与 <b>API 地址</b>，选择 / 添加模型；在「高级设置」选择或上传 Profile。侧栏点「测试 API 连接」。测试成功只证明模型列表接口可读，不等于所选聊天、翻译和 Embedding 能力都可用。</div></div>
-    <div class="step"><div class="s-body"><b>上传两份 xlsx。</b>在「运行」页分别上传「原文文件（xlsx）」与「术语表文件（xlsx）」。两个上传位都必填，有效数据必须在各自第一个工作表；术语表中英文任一为空的行不会载入。</div></div>
+    <div class="step"><div class="s-body"><b>配置。</b>进入「设置」，先填写主生成服务的 <b>API 密钥</b>、地址和模型。NER、Embedding、表头识别默认继承主服务；若供应商不同，在「辅助 API 服务」中关闭继承并分别填写。各组都有独立连接测试。密钥只保存在当前进程内存，重启后从环境变量重新读取；在「项目规则与性能」选择已审核的版本化 Profile。</div></div>
+    <div class="step"><div class="s-body"><b>上传 xlsx。</b>在「提取术语」页上传必填的「源文本文件（xlsx）」；「已有双语术语表（xlsx）」可选。有效数据必须在第一个工作表；术语表中英文任一为空的行不会载入。</div></div>
     <div class="step"><div class="s-body"><b>人工核对列。</b>确认「原文列」「Key列（可选）」「中文术语列」「英文翻译列」。有官方英文时开启「双语模式」并核对「原文英文列」；只提取不翻译时才开启「跳过翻译」。自动识别失败可能退回默认列，不能跳过这一步。</div></div>
     <div class="step"><div class="s-body"><b>开始提取。</b>确认页面摘要中的 Profile、模型和并发后点 <span class="ui green">开始提取</span>。阶段依次显示初始化、加载、LLM 术语提取、匹配与翻译、完成；运行中可取消，但在途 API 请求不保证立即停止。</div></div>
     <div class="step"><div class="s-body"><b>下载并留档。</b>完成后先核对页面提取数量和预览，再到「结果」下载「标注模板 xlsx」与「原始结果 xlsx」。浏览器副本进入默认下载目录或提示的用户选择位置；项目磁盘副本位于 <span class="mono">output/run_YYYYMMDD_HHMMSS/</span>。历史列表只直接下载原始结果；点「加载」后可重新生成候选模板，但须核对当前 Profile 与新文件名，因此仍建议当轮归档。</div></div>
-    <div class="step"><div class="s-body"><b>断点续跑。</b>「运行」页会显示可续传文件及「所有断点」。有输入副本时直接点「继续」；旧断点没有输入时重新上传原文与术语表。恢复时保持原文、术语表、Profile、模型、列设置与模式不变；界面匹配主要依据原文内容和 Profile，不能据此推断其他配置也一致。</div></div>
+    <div class="step"><div class="s-body"><b>断点续跑。</b>只有原文、术语表、Profile 文件名与内容、模型、列设置和模式全部未变时才继续。当前断点身份不能自动证明这些内容一致；同名 Profile 被改过也可能混入旧结果。任一项变化就保留旧断点作证据并新开一轮，不点「继续」。</div></div>
   </div>
 
   <div class="callout warn"><b>首装纠偏：</b>不要只依赖“首次双击 run.bat 自动安装”的旧说明。若电脑已有系统 Python，<span class="mono">run.bat</span> 可能直接使用它而不安装依赖；可靠做法是首装先运行 <span class="mono">setup.bat</span>。</div>
@@ -312,15 +354,40 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="sec-title-wrap"><h2>自然语言 Agent 操作</h2><div class="sec-en">Copy-ready agent prompts</div></div>
   </div>
 
-  <p>下面三段可整段复制给有本机文件与终端权限的 Agent。标注工具没有公开 CLI，必须在浏览器中由人完成语义判断与审核；Agent 不得把“成功导出文件”替代为“人工审核已完成”。</p>
+  <p>下面四段可整段复制给有本机文件与终端权限的 Agent。先用指令 0 把 PM 填写表变成已审核 Profile，再执行环境检查与提取。标注工具没有公开 CLI，必须在浏览器中由人完成语义判断与审核；Agent 不得把“成功导出文件”替代为“人工审核已完成”。</p>
+
+  <h3>指令 0：把 PM 填写表转成待上传 Profile</h3>
+  <pre class="prompt"><code>任务：把 PM 填好的项目配置表转成一份可审计、待 PM 上传的正式 Profile；不运行提取，不调用外部 API。
+项目路径：[项目根目录绝对路径]
+输入：
+- PM 填写表：[项目配置填写表 xlsx 绝对路径]
+- Profile slug 与版本：[如 project_v01；使用稳定短名，不含路径片段]
+- 审校目录：[绝对路径]
+输出：
+- [审校目录]/[slug].yaml
+- [审校目录]/[slug]_Profile审校报告.md
+约束：
+1. 只读填写表，不改第三列示例或 PM 答案；只把第四列黄色区视为正式答案。
+2. Q1–Q7、Q10–Q11 任一空白则 FAIL；Q11 少于 3 条负例则 FAIL。Q8 非“英文/中→英”时停止并报告程序目标语不支持。
+3. 可先运行 import_project_form.py 生成 scaffold，但必须使用 --out 写入审校目录，不用 --force、不直接写 profiles/。脚本输出不能视为审校完成。
+4. 按 PM 原意规整 Q7 为逐项短分类；把 Q10 原文与术语(分类)配对成结构化正例；Q11 负例 output 必须为 []。不得编造世界观、专名或客户规则。
+5. 删除或裁决所有 TODO、默认占位和空列表项；Q3、Q8、Q12 的当前运行边界写进报告，不伪装为已生效规则。
+验证：
+1. 使用能拒绝重复键的方式检查 YAML，再用 yaml.safe_load 确认顶层是 mapping。
+2. 检查 game_type/core_principle 为非空字符串；extract_examples 为含 include/exclude 列表的对象；extraction_notes、term_categories、translation_rules 为字符串列表；fewshot_examples 每项有 input 与 list 类型 output。
+3. 禁止空字符串列表项；few-shot category 必须属于 term_categories；filterable_categories 必须是 term_categories 子集；rule_extractors 若存在则字段齐全。
+4. 不发 API 请求，直接调用本地 prompt 构建函数做冒烟检查，确认 PM 的 include/exclude、分类、正负例和翻译规则出现在预期提示中。
+5. 报告逐题列出“PM 单元格 → YAML 字段 → 运行影响”，记录哈希、检查结果、未生效项和结论。任一硬检查失败不得输出 PASS，也不得把 YAML 放入 profiles/。
+完成条件：YAML 与报告均存在，报告结论 PASS；之后由 PM 在 UI 上传并选择版本化 YAML。</code></pre>
+  <p class="copy-note">此指令只生成待上传配置与审校证据；不会覆盖现有 Profile，也不会产生计费请求。</p>
 
   <h3>指令 A：只读环境与输入检查</h3>
   <pre class="prompt"><code>任务：在不修改任何文件的前提下，检查游戏术语提取环境与输入。
-项目路径：/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal
+项目路径：[项目根目录绝对路径]
 输入：
 - 原文：[原文 xlsx 绝对路径]
 - 术语表：[术语表 xlsx 绝对路径]
-- Profile：[Profile 名]
+- Profile：[Profile 名]；已审核 YAML：[归档 YAML 绝对路径]
 - 预期原文 / Key / 官方英文列：[列名或 0 基索引]
 - 预期术语中文 / 英文列：[列名或 0 基索引]
 输出要求：把检查结果写入 [环境检查报告绝对路径]，并在终端给出 PASS / FAIL 摘要。
@@ -330,7 +397,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 检查：
 1. 确认项目路径及 run.bat、setup.bat、cli.py、ui/app.py、requirements.txt 存在。
 2. 报告可用 Python 命令和版本，验证 requirements 中关键模块能否导入。
-3. 确认 profiles/[Profile 名].yaml 存在且 YAML 可解析。
+3. 确认 profiles/[Profile 名].yaml 存在；与归档 YAML 的 SHA-256 完全一致，且已通过指令 0 的 Profile 审校。只有“可解析”但无审校报告时直接标 FAIL。
 4. 列出两份 xlsx 的全部工作表名，但只读取第一个工作表做业务检查；报告首表名称、数据行数、表头与建议的 0 基列索引。若有效数据不在首表，直接标 FAIL，不得用后续工作表替代。
 5. 对术语表首表分别计数：中英同时非空的有效行、仅中文为空、仅英文为空、两列都为空；明确后三类运行时会跳过。术语表必须有可索引的中英两列。
 6. 明确 Windows 为正式支持平台，其他平台只报告技术可运行性。
@@ -339,24 +406,27 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 
   <h3>指令 B：按已确认列运行 CLI 提取</h3>
   <pre class="prompt"><code>任务：使用 CLI 执行一轮游戏术语提取，并保留可复核产物。
-项目路径：/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal
+项目路径：[项目根目录绝对路径]
 输入：
 - 原文：[原文 xlsx 绝对路径]
 - 术语表：[术语表 xlsx 绝对路径]
 - Profile：[Profile 名]
-- API Base URL：[API Base URL]
-- 模型：[模型名]
+- 主生成服务 Base URL / 模型：[API Base URL] / [模型名]
+- NER 服务 Base URL / 模型：[可选，留空继承主服务]
+- Embedding 服务 Base URL / 模型：[可选，留空继承主服务]
 - 列索引：src=[原文列]，key=[Key列或省略]，gl_cn=[中文术语列]，gl_en=[英文译文列]
 - 输出目录：[输出目录绝对路径]
 - 并发上限：[正整数]
-输出要求：生成 results.xlsx 和本轮候选术语标注表，并写 [运行报告绝对路径]。
+输出要求：生成 results.xlsx、本轮候选术语标注表、实际 Profile YAML 快照，并写 [运行报告绝对路径]。
 约束：
 1. 先 cd 到项目路径；只读取输入，不改源码、Profile 或输入 xlsx。
-2. API Token 只允许从现有环境变量 OPENAI_API_KEY 读取，不得回显、写进命令或报告；缺失则停止。
+2. 所有 API 密钥只允许从现有环境变量读取：主服务 OPENAI_API_KEY，独立 NER/Embedding 分别使用 NER_API_KEY、EMBEDDING_API_KEY；不得回显、写进命令、配置、断点或报告。专用密钥缺失时沿用主服务。
 3. 使用有界并发；不得删除既有 output、database 或 checkpoint。
 4. 不自动操作 annotation/术语标注助手_v3.0.html，不声称完成人工审核。
+5. 开跑前把实际 profiles/[Profile 名].yaml 复制到输出目录，记录 SHA-256；若它与环境检查报告中的归档版本不同则停止。
 执行命令：
-python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx 绝对路径]" --profile "[Profile 名]" --base-url "[API Base URL]" --model "[模型名]" --output "[输出目录绝对路径]" --src-col [原文列] --gl-cn-col [中文术语列] --gl-en-col [英文译文列] --concurrent [正整数]
+python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" --base-url "[API Base URL]" --model "[模型名]" --output "[输出目录绝对路径]" --src-col [原文列] --concurrent [正整数]
+如有术语表，再加入 --glossary "[术语表 xlsx 绝对路径]" --gl-cn-col [中文术语列] --gl-en-col [英文译文列]；NER 或 Embedding 使用独立服务时，再加入对应的 --ner-base-url/--ner-model 或 --embedding-base-url/--embedding-model，密钥仍只从环境变量读取。
 若已确认 Key 列，再加入 --key-col [Key列]；若输入为官方双语，再加入 --bilingual --src-en-col [官方英文列]。
 检查：
 1. 进程退出码为 0，记录耗时与终端报告的术语数。
@@ -367,12 +437,13 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
 
   <h3>指令 C：只读验收主结果与人工审定表</h3>
   <pre class="prompt"><code>任务：只读验收提取结果、候选表和人工审定术语表。
-项目路径：/Users/spellbook/Desktop/Langlobal/Game-Terms-Extraction-Langlobal
+项目路径：[项目根目录绝对路径]
 输入：
 - 原文：[原文 xlsx 绝对路径]
-- 主结果：[results.xlsx 或 terms_extraction_results.xlsx 绝对路径]
+- 主结果：[results.xlsx 绝对路径]
 - 候选表：[候选术语标注表绝对路径]
 - 人工审定表：[术语表_*.xlsx 绝对路径]
+- 本轮 Profile 快照：[输出目录内 YAML 绝对路径]
 - 标注操作记录：[包含导入、划词/整行新增、覆盖及人工修订的记录绝对路径；没有则写“缺失”]
 - 原文 / Key 列：[列名或 0 基索引]
 - 输出报告：[验收报告绝对路径]
@@ -382,7 +453,7 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
 2. 分别使用两套字段契约：候选表第 5 列为“匹配来源”，人工审定表第 5 列为“备注”。
 3. 自动检查不能代替浏览器人工语义审核；无法验证的质量项必须标“待人工”。
 检查：
-1. 三份 xlsx 均可打开；主结果行数 = 候选表行数 = 提取完成数（如提供）。
+1. 三份 xlsx 均可打开；本轮 Profile 快照存在且哈希与运行报告一致；主结果行数 = 候选表行数 = 提取完成数（如提供）。
 2. 候选表恰为 8 列，审核状态全为未审核；候选「Key值 / 来源原文」与主结果的 source_key / source_text 对应字段零差异。主结果 source_text 可能是清洗后的文本或双语拼接，不得强制等于原始单元格。
 3. 人工审定表列序为：Key值 / 术语分类 / 术语原文 / 术语译文 / 备注 / 来源原文 / 审核状态 / 最新修订时间。
 4. 报告空术语、空译文、重复术语、未审核数量；发布门槛为未审核 0。
@@ -403,6 +474,10 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
     <table>
       <thead><tr><th>关口</th><th>检查方法</th><th>通过标准</th></tr></thead>
       <tbody>
+        <tr><td class="t-key">PM 配置表</td><td>打开「项目信息填写表」首表，检查黄色第四列并逐题对照项目资料。</td><td>Q1–Q7、Q10–Q11 均有项目真实答案；Q11 至少 3 条负例；第三列示例未被覆盖。Q7 一行一类，Q10 每个“原文 → 术语(分类)”配对明确。</td></tr>
+        <tr><td class="t-key">Profile 结构</td><td>按指令 0 做重复键、YAML、类型、空项、分类引用和 prompt 冒烟检查。</td><td>全部硬检查 PASS；无未裁决 TODO / 默认占位；目标语为当前支持的英文；审校报告与版本化 YAML 均已归档。</td></tr>
+        <tr><td class="t-key">Profile 身份</td><td>比较 PM 归档 YAML、<span class="mono">profiles/</span> 实际文件和本轮输出内快照的 SHA-256。</td><td>三者完全一致；所选 Profile 名含明确版本；差异数 = 0。同名覆盖或缺少快照均不得发布。</td></tr>
+        <tr><td class="t-key">Profile 小样</td><td>由 PM / 语言负责人预先选代表性小样，逐条标记漏报、误报、分类错和译文问题。</td><td>达到项目开始前约定的口径；仓库没有通用语义正确率 SLA，未约定门槛或未完成人工结论时不得写“已验证准确率”。</td></tr>
         <tr><td class="t-key">输入可用</td><td>列出原文与术语表的工作表，只检查首表；记录首表名、行数、表头和实际列索引，并统计术语中英列完整性。</td><td>两份 xlsx 都可读，有效数据都在首表；原文列存在；术语中文 / 英文列存在。术语有效行 = 中英同时非空行，任一为空的跳过数已报告；空术语表也保留两列表头。</td></tr>
         <tr><td class="t-key">主工具数量</td><td>比较完成页数量、<span class="mono">results.xlsx</span> 数据行和候选表数据行。</td><td>三者数量完全相等；差异数 = 0。</td></tr>
         <tr><td class="t-key">主工具文件</td><td>检查本轮输出目录与下载留档。</td><td>原始结果和候选模板各 1 份，均可打开；候选表初始「未审核」数 = 总行数。</td></tr>
@@ -432,7 +507,7 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
 
   <dl class="faq">
     <dt>API 测试失败、401，或测试成功但提取仍失败</dt>
-    <dd>回到「设置」核对 API Token、API 地址与模型名，确认网络和配额，再点侧栏测试。连接测试只读取模型列表；主流程还需要聊天、翻译和 Embedding 能力，NER 预扫描还使用固定模型。报告实际失败阶段，不要把 Token 发给他人。</dd>
+    <dd>回到「设置」分别核对主生成、NER、Embedding 与表头识别服务的密钥来源、地址和模型，确认继承选项、网络与配额，再点击对应连接测试。连接测试会调用该服务实际使用的 Chat 或 Embedding 接口。报告实际失败阶段，不要把密钥发给他人。</dd>
 
     <dt>run.bat 双击无反应，或提示缺 Python / 模块</dt>
     <dd>从项目根目录先运行 <span class="mono">setup.bat</span>，确认下载与依赖安装均成功，再运行 <span class="mono">run.bat</span>。系统已有 Python 时，run.bat 可能不会自动安装依赖；可从终端运行它以保留错误信息。</dd>
@@ -443,11 +518,26 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
     <dt>浏览器没有自动打开主工具</dt>
     <dd>保留终端窗口，等待 Streamlit 启动后打开终端显示的本地地址，通常是 <span class="mono">localhost:8501</span>。若仍打不开，检查终端是否退出、端口是否冲突，再按实际端口访问。</dd>
 
+    <dt>PM 填完配置表，但 UI 找不到 xlsx 上传入口</dt>
+    <dd>这是正常边界：填写表不是主工具输入。把版本化 xlsx 交给工程 / Agent，按本指南“指令 0”生成并审校 YAML；只有审校 PASS 的 <span class="mono">.yaml</span> 才在「设置 → 高级设置 → 项目配置」上传。</dd>
+
+    <dt>转换结果有 TODO、分类粘成一长串，或 Q10 正例没有进入 YAML</dt>
+    <dd>该文件仍是 scaffold，不能上传。把 Q7 改为一行一个短分类，把 Q10 每个“原文 → 术语(分类)”写在同一行；工程 / Agent 再逐题对照、裁决 TODO 与默认规则，并重跑结构和 prompt 冒烟检查。</dd>
+
+    <dt>上传新 Profile 后，旧同名版本不见了</dt>
+    <dd>当前 UI 同名上传会直接覆盖，没有确认或自动备份。停止运行，从归档恢复旧 YAML；以后先下载旧版并使用带版本的新文件名。不要依靠 <span class="mono">output/run_*/</span> 找回，因为运行输出不会自动保存 Profile 快照。</dd>
+
+    <dt>YAML 显示上传成功，但运行时报字段错误或结果异常</dt>
+    <dd>上传只证明 YAML 能被基础解析，不代表字段或业务规则正确。停止全量运行；检查重复键、字段类型、空字符串列表项、未解决占位、few-shot 分类和过滤分类，再用代表性小样复验。UI 的空白 YAML 模板不能绕过这一步。</dd>
+
+    <dt>项目目标语不是英文</dt>
+    <dd>当前新译提示固定为中文 → 英文，填写表 Q8 或 Profile 不能切换为日 / 韩等目标语。停止配置与运行，把需求交工程评估程序改造；不得把“已填写目标语”报告成“程序已支持”。</dd>
+
     <dt>自动识别的列不对</dt>
     <dd>在「运行」页手动选择原文、Key、官方英文、术语中文和术语英文列；CLI 列号从 0 开始。不要直接开始提取。标注工具也要分别核对 Key / 原文 / 译文列。</dd>
 
     <dt>中断后没有从预期位置继续</dt>
-    <dd>在「所有断点」查看状态，单位是 chunks，不是 Excel 行。恢复时使用完全相同的原文、术语表、Profile、模型、列设置与模式。断点通常每若干批写入，最近一批可能重做；成功完成后 UI 会清除断点。</dd>
+    <dd>在「所有断点」查看状态，单位是 chunks，不是 Excel 行。只有原文、术语表、Profile 名与内容、模型、列设置和模式全部相同时才续跑；系统不会完整校验这些不变量。同名 Profile 被改过或任一参数变化时新开一轮。断点通常每若干批写入，最近一批可能重做；成功完成后 UI 会清除断点。</dd>
 
     <dt>标注工具提示恢复草稿</dt>
     <dd>确认时间与术语数后恢复，再重新导入原文并核对三列。浏览器草稿只含术语，且受本地存储配额约束；立即另存 <span class="mono">term_project_*.json</span>，后续以该工程文件为正式续作依据。</dd>
@@ -465,7 +555,7 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --glossary "[术语表 xlsx
     <dd>历史列表只直接提供原始 results 下载；先点该记录的「加载」，进入结果视图后可重新生成候选模板。重新生成前核对当前 Profile，下载后核对 8 列、行数和新文件名；也可优先使用 <span class="mono">output/run_*/</span> 的当轮磁盘副本。</dd>
   </dl>
 
-  <div class="callout warn"><b>恢复原则：</b>保留原输入、断点、原始结果、候选表和最近的工程 JSON；先定位失败阶段，再重试。任何重试都要在报告中与首次运行数据分开记录。</div>
+  <div class="callout warn"><b>恢复原则：</b>保留 PM 填写表、实际 Profile YAML 与审校报告、原输入、断点、原始结果、候选表和最近的工程 JSON；先定位失败阶段，再重试。任何重试都要在报告中与首次运行数据分开记录。</div>
 </section>
 
 <footer>
