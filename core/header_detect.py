@@ -21,6 +21,13 @@ from urllib.parse import urlsplit, urlunsplit
 import pandas as pd
 from openai import OpenAI
 from config_template import DEFAULT_API_BASE, DEFAULT_DETECT_MODEL
+from core.languages import (
+    DEFAULT_SOURCE_LANGUAGE,
+    DEFAULT_TARGET_LANGUAGE,
+    language_header_aliases,
+    language_name,
+    validate_language_pair,
+)
 
 CACHE_FILE = Path(__file__).resolve().parent.parent / "header_cache.json"
 _CACHE_SCHEMA_VERSION = 2
@@ -209,19 +216,29 @@ def _resolve_detection_settings(api_key=None, base_url=None, model=None) -> tupl
     return resolved_key.strip(), resolved_base.strip(), resolved_model.strip()
 
 
-def _ai_detect(df: pd.DataFrame, file_type: str, *, api_key=None, base_url=None, model=None) -> dict:
+def _ai_detect(
+    df: pd.DataFrame,
+    file_type: str,
+    *,
+    api_key=None,
+    base_url=None,
+    model=None,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> dict:
     headers, sample_rows = _headers_and_sample(df, max_rows=3)
     sample_text = "列名: " + " | ".join(f"[{i}] {h}" for i, h in enumerate(headers)) + "\n"
     for ri, row in enumerate(sample_rows):
         sample_text += f"第{ri+1}行: " + " | ".join(f"[{i}] {cell}" for i, cell in enumerate(row)) + "\n"
 
     if file_type == "source":
-        context = ("这是一个游戏文本文件，需要找出：1) 哪一列包含**需要提取术语的中文原文文本**；"
+        context = (f"这是一个游戏文本文件，需要找出：1) 哪一列包含**需要提取术语的{language_name(source_language)}原文文本**；"
                    "2) 哪一列是行唯一标识（Key/ID/编号，通常是字符串编码或数字序号），没有则 key_col 为 null；"
-                   "3) 哪一列是与原文**逐行对照的英文译文**（整句翻译，不是备注或分类），没有则 en_col 为 null。")
+                   f"3) 哪一列是与原文**逐行对照的{language_name(target_language)}译文**（整句翻译，不是备注或分类），没有则 en_col 为 null。")
         output_format = '{"text_col": <列索引数字>, "key_col": <列索引数字或null>, "en_col": <列索引数字或null>}'
     else:
-        context = ("这是一个游戏术语表文件，需要找出哪一列是**中文术语原文**，哪一列是对应的**英文译文**。"
+        context = (f"这是一个游戏术语表文件，需要找出哪一列是**{language_name(source_language)}术语原文**，"
+                   f"哪一列是对应的**{language_name(target_language)}译文**。"
                    "表中可能还有 Key、分类、备注、来源、审核状态、修订时间等其他列（如「术语分类」是分类标签而非术语本身），不要选这些列。")
         output_format = '{"cn_col": <列索引数字>, "en_col": <列索引数字>}'
 
@@ -252,6 +269,68 @@ def _ai_detect(df: pd.DataFrame, file_type: str, *, api_key=None, base_url=None,
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+def _detection_scope(file_type: str, source_language: str, target_language: str) -> str:
+    if (source_language, target_language) == (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+        return file_type
+    return f"{file_type}:{source_language}:{target_language}"
+
+
+def _normalized_header(value) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().casefold().replace("_", "-"))
+
+
+def _language_column(headers, language: str, excluded: set[int] | None = None) -> int | None:
+    aliases = {_normalized_header(alias) for alias in language_header_aliases(language)}
+    excluded = excluded or set()
+    exact = []
+    prefixed = []
+    for index, header in enumerate(headers):
+        if index in excluded:
+            continue
+        normalized = _normalized_header(header)
+        if normalized in aliases:
+            exact.append(index)
+            continue
+        if any(normalized.startswith(f"{alias}-") for alias in aliases if len(alias) <= 7):
+            prefixed.append(index)
+    candidates = exact or prefixed
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _key_column(headers: list) -> int | None:
+    aliases = {"id", "key", "key值", "文本 id", "文本id", "编号", "string id", "stringid"}
+    matches = [i for i, header in enumerate(headers) if _normalized_header(header) in aliases]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _rule_source_mapping(df: pd.DataFrame, source_language: str, target_language: str) -> dict | None:
+    headers = list(df.columns)
+    text_col = _language_column(headers, source_language)
+    if text_col is None:
+        return None
+    target_col = _language_column(headers, target_language, {text_col})
+    return {"text_col": text_col, "key_col": _key_column(headers), "en_col": target_col}
+
+
+def _rule_glossary_mapping(df: pd.DataFrame, source_language: str, target_language: str) -> dict | None:
+    headers = list(df.columns)
+    source_col = _language_column(headers, source_language)
+    if source_col is None:
+        return None
+    target_col = _language_column(headers, target_language, {source_col})
+    if target_col is None:
+        return None
+    return {"cn_col": source_col, "en_col": target_col}
+
+
+def _rule_result(mapping: dict) -> dict:
+    return {
+        **mapping,
+        "method": "rule",
+        "confidence": "高（语言列名匹配，请确认）",
+    }
+
 
 def _is_index(value, column_count: int) -> bool:
     return type(value) is int and 0 <= value < column_count
@@ -307,11 +386,25 @@ def _fallback_result(mapping: dict, exc: Exception) -> dict:
         "fallback_reason": reason,
     }
 
-def detect_source_column(df: pd.DataFrame, *, api_key=None, base_url=None, model=None) -> dict:
+def detect_source_column(
+    df: pd.DataFrame,
+    *,
+    api_key=None,
+    base_url=None,
+    model=None,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> dict:
     """Detect source-file column roles and preserve a visible fallback reason."""
+    source_language, target_language = validate_language_pair(source_language, target_language)
     n = len(df.columns)
+    if (source_language, target_language) != (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+        rule_mapping = _rule_source_mapping(df, source_language, target_language)
+        if rule_mapping:
+            return _rule_result(_source_mapping(rule_mapping, n))
+    file_type = _detection_scope("source", source_language, target_language)
     resolved_key, resolved_base, resolved_model = _resolve_detection_settings(api_key, base_url, model)
-    cached, metadata = _cache_lookup(df, "source", resolved_base, resolved_model)
+    cached, metadata = _cache_lookup(df, file_type, resolved_base, resolved_model)
     if cached:
         try:
             return _cache_result(_source_mapping(cached, n), cached, metadata)
@@ -324,9 +417,11 @@ def detect_source_column(df: pd.DataFrame, *, api_key=None, base_url=None, model
             api_key=resolved_key,
             base_url=resolved_base,
             model=resolved_model,
+            source_language=source_language,
+            target_language=target_language,
         )
         mapping = _source_mapping(ai, n)
-        metadata = _cache_put_context(df, "source", mapping, "ai", resolved_base, resolved_model)
+        metadata = _cache_put_context(df, file_type, mapping, "ai", resolved_base, resolved_model)
         return {
             **mapping,
             "method": "ai",
@@ -337,11 +432,25 @@ def detect_source_column(df: pd.DataFrame, *, api_key=None, base_url=None, model
         return _fallback_result({"text_col": 0, "key_col": None, "en_col": None}, exc)
 
 
-def detect_glossary_columns(df: pd.DataFrame, *, api_key=None, base_url=None, model=None) -> dict:
+def detect_glossary_columns(
+    df: pd.DataFrame,
+    *,
+    api_key=None,
+    base_url=None,
+    model=None,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> dict:
     """Detect glossary column roles and preserve a visible fallback reason."""
+    source_language, target_language = validate_language_pair(source_language, target_language)
     n = len(df.columns)
+    if (source_language, target_language) != (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+        rule_mapping = _rule_glossary_mapping(df, source_language, target_language)
+        if rule_mapping:
+            return _rule_result(_glossary_mapping(rule_mapping, n))
+    file_type = _detection_scope("glossary", source_language, target_language)
     resolved_key, resolved_base, resolved_model = _resolve_detection_settings(api_key, base_url, model)
-    cached, metadata = _cache_lookup(df, "glossary", resolved_base, resolved_model)
+    cached, metadata = _cache_lookup(df, file_type, resolved_base, resolved_model)
     if cached:
         try:
             return _cache_result(_glossary_mapping(cached, n), cached, metadata)
@@ -354,9 +463,11 @@ def detect_glossary_columns(df: pd.DataFrame, *, api_key=None, base_url=None, mo
             api_key=resolved_key,
             base_url=resolved_base,
             model=resolved_model,
+            source_language=source_language,
+            target_language=target_language,
         )
         mapping = _glossary_mapping(ai, n)
-        metadata = _cache_put_context(df, "glossary", mapping, "ai", resolved_base, resolved_model)
+        metadata = _cache_put_context(df, file_type, mapping, "ai", resolved_base, resolved_model)
         return {
             **mapping,
             "method": "ai",
@@ -372,7 +483,9 @@ def detect_glossary_columns(df: pd.DataFrame, *, api_key=None, base_url=None, mo
 
 def record_source_correction(headers, text_col, key_col=None, en_col=None, *,
                              df: pd.DataFrame | None = None,
-                             base_url: str = "", model: str = ""):
+                             base_url: str = "", model: str = "",
+                             source_language: str = DEFAULT_SOURCE_LANGUAGE,
+                             target_language: str = DEFAULT_TARGET_LANGUAGE):
     """Persist a user's correction; context-aware callers should provide ``df``."""
     mapping = {
         "text_col": int(text_col),
@@ -381,14 +494,20 @@ def record_source_correction(headers, text_col, key_col=None, en_col=None, *,
     }
     if df is None:
         return False
-    return _cache_put_context(df, "source", mapping, "user", base_url, model)
+    source_language, target_language = validate_language_pair(source_language, target_language)
+    file_type = _detection_scope("source", source_language, target_language)
+    return _cache_put_context(df, file_type, mapping, "user", base_url, model)
 
 
 def record_glossary_correction(headers, cn_col, en_col, *,
                                df: pd.DataFrame | None = None,
-                               base_url: str = "", model: str = ""):
+                               base_url: str = "", model: str = "",
+                               source_language: str = DEFAULT_SOURCE_LANGUAGE,
+                               target_language: str = DEFAULT_TARGET_LANGUAGE):
     """Persist a user's correction; context-aware callers should provide ``df``."""
     mapping = {"cn_col": int(cn_col), "en_col": int(en_col)}
     if df is None:
         return False
-    return _cache_put_context(df, "glossary", mapping, "user", base_url, model)
+    source_language, target_language = validate_language_pair(source_language, target_language)
+    file_type = _detection_scope("glossary", source_language, target_language)
+    return _cache_put_context(df, file_type, mapping, "user", base_url, model)

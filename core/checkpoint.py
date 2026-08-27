@@ -1,9 +1,19 @@
 import json, hashlib, shutil, time, tempfile, os
 from pathlib import Path
 
+from core.languages import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE, validate_language_pair
 
-def checkpoint_dir_name(file_bytes: bytes, profile: str) -> str:
+
+def checkpoint_dir_name(
+    file_bytes: bytes,
+    profile: str,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> str:
     h = hashlib.md5(file_bytes).hexdigest()[:8]
+    source_language, target_language = validate_language_pair(source_language, target_language)
+    if (source_language, target_language) != (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+        return f"src_{profile}_{source_language}-{target_language}_{h}"
     return f"src_{profile}_{h}"
 
 

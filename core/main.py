@@ -23,6 +23,15 @@ class PipelineInterruptedError(Exception):
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+from core.languages import (
+    DEFAULT_SOURCE_LANGUAGE,
+    DEFAULT_TARGET_LANGUAGE,
+    is_chinese,
+    language_name,
+    language_tag,
+    validate_language_pair,
+)
+
 DEFAULT_TEMPLATE_FILENAME = "候选术语_模板.xlsx"
 PROFILE_LABELS = {
     "yanyun": "燕云",
@@ -34,13 +43,18 @@ PROFILE_LABELS = {
 
 @dataclass
 class PipelineOpts:
+    source_language: str = DEFAULT_SOURCE_LANGUAGE
+    target_language: str = DEFAULT_TARGET_LANGUAGE
     bilingual: bool = False
     no_translate: bool = False
     src_col: int = 0
     src_en_col: int = 1
+    src_target_col: Optional[int] = None
     key_col: Optional[int] = None
     gl_cn_col: int = 0
     gl_en_col: int = 1
+    gl_source_col: Optional[int] = None
+    gl_target_col: Optional[int] = None
     embed_workers: int = 16
     max_concurrent: Optional[int] = None
     max_tokens: Optional[int] = None
@@ -72,15 +86,22 @@ TEMPLATE_COLUMNS = ["Key值", "术语分类", "术语原文", "术语译文", "�
 MATCH_TYPE_SOURCE_LABELS = {
     "exact": "沿用术语表",
     "bilingual": "沿用原文英文",
+    "aligned": "沿用同行译文",
     "llm_translated": "AI 翻译",
     "no_translate": "未生成译文",
 }
 
 
-def empty_glossary_bytes() -> bytes:
+def empty_glossary_bytes(
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> bytes:
     """Return a header-only glossary workbook accepted by the pipeline."""
+    source_language, target_language = validate_language_pair(source_language, target_language)
+    source_header = "中文术语" if source_language == DEFAULT_SOURCE_LANGUAGE else f"{language_name(source_language)}术语"
+    target_header = "英文译文" if target_language == DEFAULT_TARGET_LANGUAGE else f"{language_name(target_language)}译文"
     output = BytesIO()
-    pd.DataFrame(columns=["中文术语", "英文译文"]).to_excel(output, index=False)
+    pd.DataFrame(columns=[source_header, target_header]).to_excel(output, index=False)
     return output.getvalue()
 
 
@@ -186,6 +207,66 @@ def _has_content(s: str) -> bool:
     return bool(re.search(r'\w', s))
 
 
+def _resolved_columns(opts: PipelineOpts) -> tuple[int, int, int]:
+    target_text_col = opts.src_target_col if opts.src_target_col is not None else opts.src_en_col
+    glossary_source_col = opts.gl_source_col if opts.gl_source_col is not None else opts.gl_cn_col
+    glossary_target_col = opts.gl_target_col if opts.gl_target_col is not None else opts.gl_en_col
+    return target_text_col, glossary_source_col, glossary_target_col
+
+
+def prepare_source_texts(df_src: pd.DataFrame, opts: PipelineOpts) -> tuple[list[str], list[str]]:
+    source_language, target_language = validate_language_pair(
+        opts.source_language, opts.target_language
+    )
+    target_text_col, _, _ = _resolved_columns(opts)
+    column_count = df_src.shape[1]
+    if not 0 <= opts.src_col < column_count:
+        raise ValueError("源文本列索引超出文件范围")
+    if opts.bilingual and (
+        not 0 <= target_text_col < column_count or target_text_col == opts.src_col
+    ):
+        raise ValueError("同行目标文本列索引无效或与源文本列重复")
+
+    def _key_str(v):
+        if pd.isna(v):
+            return ""
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    keys_raw = (
+        df_src.iloc[:, opts.key_col].map(_key_str)
+        if opts.key_col is not None and 0 <= opts.key_col < column_count
+        else None
+    )
+    key_list = keys_raw.tolist() if keys_raw is not None else None
+    texts, text_keys, seen = [], [], set()
+    if opts.bilingual:
+        source_list = df_src.iloc[:, opts.src_col].fillna("").astype(str).tolist()
+        target_list = df_src.iloc[:, target_text_col].fillna("").astype(str).tolist()
+        source_tag = language_tag(source_language)
+        target_tag = language_tag(target_language)
+        for pos, (source_text, target_text) in enumerate(zip(source_list, target_list)):
+            source_text = _clean_src_text(source_text)
+            target_text = _clean_src_text(target_text)
+            if not _has_content(source_text) or (source_text, target_text) in seen:
+                continue
+            seen.add((source_text, target_text))
+            texts.append(f"{source_tag}: {source_text} | {target_tag}: {target_text}")
+            text_keys.append(key_list[pos] if key_list is not None else "")
+    else:
+        for pos, value in enumerate(df_src.iloc[:, opts.src_col].tolist()):
+            if pd.isna(value):
+                continue
+            source_text = _clean_src_text(str(value))
+            if not _has_content(source_text) or source_text in seen:
+                continue
+            seen.add(source_text)
+            texts.append(source_text)
+            text_keys.append(key_list[pos] if key_list is not None else "")
+    return texts, text_keys
+
+
 def _on_interrupt(sig, frame):
     global _interrupted
     _interrupted = True
@@ -217,7 +298,23 @@ def load_glossary(path: str, cn_col: int = 0, en_col: int = 1) -> Tuple[dict, se
     return glossary, keys
 
 
-def _batch_match_context(terms: List[dict], source_texts: List[str], source_keys: List[str] = None) -> None:
+def _source_match_text(text: str, source_language: str, target_language: str) -> str:
+    if (source_language, target_language) == (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+        return text
+    source_prefix = f"{language_tag(source_language)}: "
+    target_marker = f" | {language_tag(target_language)}: "
+    if text.startswith(source_prefix) and target_marker in text:
+        return text[len(source_prefix):].split(target_marker, 1)[0]
+    return text
+
+
+def _batch_match_context(
+    terms: List[dict],
+    source_texts: List[str],
+    source_keys: List[str] = None,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> None:
     # whitespace-tolerant: source may hold internal spaces the model stripped (e.g. "武  茗" -> "武茗")
     _ws = re.compile(r"\s+")
     nterm = {t["term"]: _ws.sub("", t["term"]) for t in terms}
@@ -225,7 +322,8 @@ def _batch_match_context(terms: List[dict], source_texts: List[str], source_keys
     term_context: Dict[str, str] = {}
     term_key: Dict[str, str] = {}
     for i, text in enumerate(source_texts):
-        ntext = _ws.sub("", text)
+        match_text = _source_match_text(text, source_language, target_language)
+        ntext = _ws.sub("", match_text)
         found = [term for term in remaining if nterm[term] in ntext]
         for term in found:
             term_context[term] = text.replace("\n", " ").strip()
@@ -240,9 +338,17 @@ def _batch_match_context(terms: List[dict], source_texts: List[str], source_keys
 
 
 def _context_snapshot_for_checkpoint(terms: List[dict], source_texts: List[str],
-                                     source_keys: List[str] = None) -> List[dict]:
+                                     source_keys: List[str] = None,
+                                     source_language: str = DEFAULT_SOURCE_LANGUAGE,
+                                     target_language: str = DEFAULT_TARGET_LANGUAGE) -> List[dict]:
     snapshot = [dict(t) for t in terms]
-    _batch_match_context(snapshot, source_texts, source_keys)
+    _batch_match_context(
+        snapshot,
+        source_texts,
+        source_keys,
+        source_language,
+        target_language,
+    )
     return snapshot
 
 
@@ -285,7 +391,24 @@ NER_SYSTEM = """从游戏中文文本中提取命名实体。严格按 JSON 格�
 - places: 所有地名、地点、场所、门派、组织。
 - 只输出 JSON，不要任何额外文字。"""
 
-def _rule_extract(batch_c, profile):
+
+def _ner_system_prompt(source_language: str) -> str:
+    if is_chinese(source_language):
+        return NER_SYSTEM
+    return f"""从{language_name(source_language)}游戏文本中提取命名实体。严格按 JSON 格式输出:
+{{"persons": ["人名1", ...], "places": ["地名1", ...]}}
+
+规则:
+- persons: 文本中出现的所有角色名、人名和人物称谓。
+- places: 文本中出现的所有地名、地点、场所、阵营和组织名。
+- 如果条目包含带语言标签的同行译文，只分析 {language_tag(source_language)} 标签中的源文本，忽略其他语言字段。
+- 保持实体在原文中的拼写，不要翻译。
+- 只输出 JSON，不要任何额外文字。"""
+
+
+def _rule_extract(batch_c, profile, source_language: str = DEFAULT_SOURCE_LANGUAGE):
+    if not is_chinese(source_language):
+        return []
     rules = profile.get("rule_extractors")
     if not rules:
         return []
@@ -301,17 +424,24 @@ def _rule_extract(batch_c, profile):
     return list(set(results))
 
 
-async def _ner_flash_batch(batch_c, api_key, base_url, model):
+async def _ner_flash_batch(
+    batch_c,
+    api_key,
+    base_url,
+    model,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+):
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=30, max_retries=1)
     sem = asyncio.Semaphore(5)
     results = {}
+    ner_system = _ner_system_prompt(source_language)
 
     async def _one(idx, text):
         async with sem:
             async def _req():
                 resp = await client.chat.completions.create(
                     model=model,
-                    messages=[{"role": "system", "content": NER_SYSTEM}, {"role": "user", "content": text}],
+                    messages=[{"role": "system", "content": ner_system}, {"role": "user", "content": text}],
                     temperature=0, max_tokens=2048,
                 )
                 raw = resp.choices[0].message.content.strip()
@@ -341,8 +471,14 @@ async def _ner_flash_batch(batch_c, api_key, base_url, model):
     return list(all_persons), list(all_places)
 
 
-def _ner_scan(batch_c, api_key, base_url, model):
-    return asyncio.run(_ner_flash_batch(batch_c, api_key, base_url, model))
+def _ner_scan(
+    batch_c,
+    api_key,
+    base_url,
+    model,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+):
+    return asyncio.run(_ner_flash_batch(batch_c, api_key, base_url, model, source_language))
 
 
 def _collect_llm_votes(raw_v_all):
@@ -350,10 +486,11 @@ def _collect_llm_votes(raw_v_all):
     for v, raw_v in enumerate(raw_v_all):
         for r in raw_v:
             for t in r.get("extracted_terms", {}).get("terms", []):
-                term = t.get("term", t.get("zh_term", "")).strip()
+                term = (t.get("term") or t.get("source_term") or t.get("zh_term") or "").strip()
                 if term:
+                    target_term = (t.get("target_term") or t.get("eng_term") or "").strip()
                     all_votes.append({"term": term, "category": t.get("category", ""),
-                                      "eng_term": (t.get("eng_term") or "").strip(), "_vote": v})
+                                      "target_term": target_term, "_vote": v})
     return all_votes
 
 
@@ -370,7 +507,7 @@ def _pick_category(cat_counts: dict, allow: set) -> str:
 
 def _count_llm_votes(all_votes, allowed_categories=None):
     allow = set(allowed_categories or [])
-    term_counts, term_cats, term_disp, term_eng = {}, {}, {}, {}
+    term_counts, term_cats, term_disp, term_targets = {}, {}, {}, {}
     for t in all_votes:
         k = t["term"].lower()
         term_counts[k] = term_counts.get(k, 0) + 1
@@ -380,20 +517,32 @@ def _count_llm_votes(all_votes, allowed_categories=None):
             c[cat] = c.get(cat, 0) + 1
         if k not in term_disp:
             term_disp[k] = t["term"]
-        if not term_eng.get(k) and t.get("eng_term"):
-            term_eng[k] = t["eng_term"]
+        if not term_targets.get(k) and t.get("target_term"):
+            term_targets[k] = t["target_term"]
     results = []
     for k, cnt in term_counts.items():
         if cnt >= 3:
             out = {"term": term_disp[k], "category": _pick_category(term_cats.get(k, {}), allow)}
-            if term_eng.get(k):
-                out["eng_term"] = term_eng[k]
+            if term_targets.get(k):
+                out["target_term"] = term_targets[k]
             results.append(out)
     return results
 
 
 def _in_glossary(term: str, glossary_keys: set) -> bool:
-    return bool(glossary_keys and term in glossary_keys)
+    if not glossary_keys:
+        return False
+    folded = str(term or "").casefold()
+    return any(str(key).casefold() == folded for key in glossary_keys)
+
+
+def _glossary_hints(text: str, glossary_keys: set, source_language: str) -> list:
+    if not glossary_keys:
+        return []
+    if is_chinese(source_language):
+        return list(set(jieba.cut(text)) & glossary_keys)
+    folded = text.casefold()
+    return [key for key in glossary_keys if str(key).casefold() in folded]
 
 
 def _filter_derived_terms(terms: List[dict], address_suffixes: list, glossary_keys: set = None) -> List[dict]:
@@ -425,6 +574,9 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
                   output_dir: str = "", raw_dir: str = "", checkpoint_dir: str = "",
                   glossary_keys: set = None, opts: PipelineOpts = PipelineOpts(),
                   progress_callback: callable = None, text_keys: List[str] = None) -> List[dict]:
+    source_language, target_language = validate_language_pair(
+        opts.source_language, opts.target_language
+    )
     concurrent = opts.max_concurrent or EXTRACTOR_CONFIG["max_concurrent"]
     max_tokens = opts.max_tokens or EXTRACTOR_CONFIG["max_tokens"]
     if not output_dir:
@@ -443,7 +595,7 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
             results = ckpt["terms"]
             logger.info(f"Checkpoint: resume from chunk {start_idx}/{len(chunks)}, {len(results)} terms")
 
-    system = build_system_prompt(profile)
+    system = build_system_prompt(profile, source_language=source_language)
     extractor = LLMExtractor(api_key=api_key, base_url=base_url, base_dir=output_dir, cache_dir=checkpoint_dir)
 
     if raw_dir:
@@ -461,28 +613,40 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
         if progress_callback:
             progress_callback("extracting", end, len(chunks),
                               f"NER 预扫描 chunk {i+1}-{end}…")
-        ner_persons, ner_places = _ner_scan(
+        ner_args = (
             batch_c,
             opts.ner_api_key or api_key,
             opts.ner_base_url or base_url,
             opts.ner_model or model,
         )
+        if source_language == DEFAULT_SOURCE_LANGUAGE:
+            ner_persons, ner_places = _ner_scan(*ner_args)
+        else:
+            ner_persons, ner_places = _ner_scan(*ner_args, source_language=source_language)
         if progress_callback:
             progress_callback("extracting", end, len(chunks),
                               f"NER done, starting LLM votes for chunk {i+1}-{end}…")
-        rule_persons = _rule_extract(batch_c, profile)
+        rule_persons = _rule_extract(batch_c, profile, source_language)
         all_persons = list(set(ner_persons + rule_persons))
         batch_p = [
-            build_user_prompt(profile, c, include_context=False, bilingual=opts.bilingual,
-                              jieba_hints=list(set(jieba.cut(c)) & glossary_keys) if glossary_keys else None,
-                              ner_hints={'persons': [p for p in all_persons if p in c],
-                                         'places': [p for p in ner_places if p in c]})
+            build_user_prompt(
+                profile,
+                c,
+                include_context=False,
+                bilingual=opts.bilingual,
+                jieba_hints=_glossary_hints(c, glossary_keys, source_language),
+                ner_hints={'persons': [p for p in all_persons if p in c],
+                           'places': [p for p in ner_places if p in c]},
+                source_language=source_language,
+                target_language=target_language,
+            )
             for c in batch_c
         ]
 
         t_batch = time.time()
+        pair_id = _safe_filename_part(f"{source_language}-{target_language}")
         raw_v_all = _run_batch_votes(extractor, batch_c, system, batch_p, model, max_tokens, concurrent,
-                                     [f"c{j}" for j in range(i, end)], f'b{i}',
+                                     [f"c{j}" for j in range(i, end)], f'{pair_id}_b{i}',
                                      progress_callback=progress_callback)
 
         if raw_dir:
@@ -505,14 +669,23 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
                               f"+{len(batch_results)} terms, {len(results)} total | {elapsed/60:.1f}m elapsed, ETC {etc/60:.0f}m")
 
         if checkpoint_dir and (end % (concurrent * 2) == 0 or end == len(chunks)):
-            ckpt_save(checkpoint_dir, end, _context_snapshot_for_checkpoint(results, texts, text_keys), len(chunks))
+            ckpt_save(
+                checkpoint_dir,
+                end,
+                _context_snapshot_for_checkpoint(
+                    results, texts, text_keys, source_language, target_language
+                ),
+                len(chunks),
+            )
 
     if _interrupted:
         if checkpoint_dir:
             ckpt_save(
                 checkpoint_dir,
                 last_completed,
-                _context_snapshot_for_checkpoint(results, texts, text_keys),
+                _context_snapshot_for_checkpoint(
+                    results, texts, text_keys, source_language, target_language
+                ),
                 len(chunks),
             )
         raise PipelineInterruptedError("Extraction interrupted; checkpoint preserved")
@@ -524,37 +697,85 @@ def extract_terms(texts: List[str], profile: dict, api_key: str, base_url: str, 
             seen[k] = t
     terms = list(seen.values())
 
-    address_suffixes = profile.get("address_suffixes", [])
-    before = len(terms)
-    terms = _filter_derived_terms(terms, address_suffixes, glossary_keys)
-    if before != len(terms):
-        logger.info(f"_filter_derived_terms removed {before - len(terms)} NPC nickname variants ({before} → {len(terms)})")
+    if is_chinese(source_language):
+        address_suffixes = profile.get("address_suffixes", [])
+        before = len(terms)
+        terms = _filter_derived_terms(terms, address_suffixes, glossary_keys)
+        if before != len(terms):
+            logger.info(f"_filter_derived_terms removed {before - len(terms)} NPC nickname variants ({before} → {len(terms)})")
 
-    _batch_match_context(terms, texts, text_keys)
+    _batch_match_context(
+        terms,
+        texts,
+        text_keys,
+        source_language,
+        target_language,
+    )
 
     return terms
+
+
+def _aligned_target_value(
+    term: dict,
+    bilingual: bool,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> str:
+    if not bilingual:
+        return ""
+    value = str(term.get("target_term") or term.get("eng_term") or "").strip()
+    source_text = str(term.get("source_text") or "").strip()
+    marker = f" | {language_tag(target_language)}: "
+    if value and source_text and marker in source_text:
+        target_text = source_text.split(marker, 1)[1]
+        if value in target_text:
+            return value
+        exact_case = re.search(re.escape(value), target_text, flags=re.IGNORECASE)
+        if exact_case:
+            return exact_case.group(0)
+        else:
+            term["note"] = "; ".join(filter(None, [
+                term.get("note", ""),
+                f"同行{language_name(target_language)}译文未命中，已改为待生成",
+            ]))
+            return ""
+    return value
 
 
 def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
                         api_key: str, base_url: str, model: str,
                         raw_dir: str = "", embed_store: EmbedStore = None,
-                        bilingual: bool = False) -> List[dict]:
+                        bilingual: bool = False,
+                        source_language: str = DEFAULT_SOURCE_LANGUAGE,
+                        target_language: str = DEFAULT_TARGET_LANGUAGE) -> List[dict]:
+    source_language, target_language = validate_language_pair(source_language, target_language)
+    legacy_pair = (
+        source_language == DEFAULT_SOURCE_LANGUAGE
+        and target_language == DEFAULT_TARGET_LANGUAGE
+    )
+    aligned_match_type = "bilingual" if legacy_pair else "aligned"
+
     def _clean(d):
-        for k in ("_ref_term", "_ref_trans", "_ref_sim", "eng_term"):
+        for k in ("_ref_term", "_ref_trans", "_ref_sim", "eng_term", "target_term"):
             d.pop(k, None)
         return d
 
     exact_matched, bilingual_copied, need_translate = [], [], []
     for t in extracted:
-        eng = (t.get("eng_term") or "").strip() if bilingual else ""
+        aligned = _aligned_target_value(t, bilingual, target_language)
         hit = glossary.get(t["term"].lower())
         if hit:
             d = {**t, "translation": hit[1], "match_type": "exact"}
-            if eng and eng != hit[1]:
-                d["note"] = f"EN列与术语表不一致，EN列原文：{eng}"
+            if aligned and aligned != hit[1]:
+                if legacy_pair:
+                    d["note"] = f"EN列与术语表不一致，EN列原文：{aligned}"
+                else:
+                    d["note"] = (
+                        f"{language_name(target_language)}列与术语表不一致，"
+                        f"同行原文：{aligned}"
+                    )
             exact_matched.append(d)
-        elif eng:
-            bilingual_copied.append({**t, "translation": eng, "match_type": "bilingual"})
+        elif aligned:
+            bilingual_copied.append({**t, "translation": aligned, "match_type": aligned_match_type})
         else:
             need_translate.append(t)
 
@@ -576,7 +797,15 @@ def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
 
     TRANS_BATCH = 100
     batches = [need_translate[i:i + TRANS_BATCH] for i in range(0, len(need_translate), TRANS_BATCH)]
-    prompts = [build_translation_prompt(profile, b) for b in batches]
+    prompts = [
+        build_translation_prompt(
+            profile,
+            b,
+            source_language=source_language,
+            target_language=target_language,
+        )
+        for b in batches
+    ]
     translator = TermTranslator(api_key=api_key, base_url=base_url, model=model, profile=profile)
     t_trans = time.time()
     logger.info(f"Translating {len(need_translate)} terms via LLM in {len(batches)} batches (size {TRANS_BATCH})...")
@@ -610,15 +839,32 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAU
 
     global _interrupted
     _interrupted = False
+    source_language, target_language = validate_language_pair(
+        opts.source_language, opts.target_language
+    )
+    opts.source_language = source_language
+    opts.target_language = target_language
+    target_text_col, glossary_source_col, glossary_target_col = _resolved_columns(opts)
 
     if not output_dir:
         output_dir = "output"
     setup_logging(log_dir=output_dir)
     if checkpoint_dir:
         existing_meta = ckpt_load_meta(checkpoint_dir)
+        existing_checkpoint = ckpt_load(checkpoint_dir)
+        if existing_checkpoint.get("chunk_idx", 0) > 0:
+            saved_source = existing_meta.get("source_language", DEFAULT_SOURCE_LANGUAGE)
+            saved_target = existing_meta.get("target_language", DEFAULT_TARGET_LANGUAGE)
+            if validate_language_pair(saved_source, saved_target) != (source_language, target_language):
+                raise ValueError("断点的语言对与本次运行不一致，请选择对应断点或新建任务")
         ckpt_save_meta(checkpoint_dir, {
-            "src_col": opts.src_col, "gl_cn_col": opts.gl_cn_col, "gl_en_col": opts.gl_en_col,
-            "bilingual": opts.bilingual, "src_en_col": opts.src_en_col, "no_translate": opts.no_translate,
+            "source_language": source_language, "target_language": target_language,
+            "src_col": opts.src_col,
+            "gl_cn_col": glossary_source_col, "gl_en_col": glossary_target_col,
+            "gl_source_col": glossary_source_col, "gl_target_col": glossary_target_col,
+            "bilingual": opts.bilingual,
+            "src_en_col": target_text_col, "src_target_col": target_text_col,
+            "no_translate": opts.no_translate,
             "key_col": opts.key_col,
             "profile": profile_name, "model": model,
             "ner_use_main": opts.ner_use_main,
@@ -633,13 +879,19 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAU
         })
         source_path, glossary_path = ckpt_save_inputs(checkpoint_dir, source_path, glossary_path)
     profile = load_config(profile_name)
-    glossary, glossary_keys = load_glossary(glossary_path, cn_col=opts.gl_cn_col, en_col=opts.gl_en_col)
-    for gk in glossary_keys:
-        jieba.suggest_freq(gk, tune=True)
+    glossary, glossary_keys = load_glossary(
+        glossary_path,
+        cn_col=glossary_source_col,
+        en_col=glossary_target_col,
+    )
+    if is_chinese(source_language):
+        for gk in glossary_keys:
+            jieba.suggest_freq(gk, tune=True)
 
     embed_store = None
     if not opts.no_translate and glossary_keys:
-        db_path = ROOT / "database" / "glossary_embeddings.db"
+        db_suffix = "" if source_language == DEFAULT_SOURCE_LANGUAGE else f"_{_safe_filename_part(source_language)}"
+        db_path = ROOT / "database" / f"glossary_embeddings{db_suffix}.db"
         db_path.parent.mkdir(exist_ok=True)
         embed_store = EmbedStore(
             str(db_path),
@@ -655,39 +907,12 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAU
         logger.info("No reference glossary supplied; skipping embedding-store sync")
 
     df_src = pd.read_excel(source_path)
-    def _key_str(v):
-        if pd.isna(v):
-            return ""
-        if isinstance(v, float) and v.is_integer():
-            return str(int(v))
-        return str(v)
-
-    keys_raw = (df_src.iloc[:, opts.key_col].map(_key_str)
-                if opts.key_col is not None and 0 <= opts.key_col < df_src.shape[1] else None)
-    key_list = keys_raw.tolist() if keys_raw is not None else None
-    texts, text_keys, seen = [], [], set()
-    if opts.bilingual:
-        zh_list = df_src.iloc[:, opts.src_col].fillna("").astype(str).tolist()
-        en_list = df_src.iloc[:, opts.src_en_col].fillna("").astype(str).tolist()
-        for pos, (z, e) in enumerate(zip(zh_list, en_list)):
-            z, e = _clean_src_text(z), _clean_src_text(e)
-            if not _has_content(z) or (z, e) in seen:
-                continue
-            seen.add((z, e))
-            texts.append(f"ZH: {z} | EN: {e}")
-            text_keys.append(key_list[pos] if key_list is not None else "")
-        logger.info(f"Source (bilingual): {len(df_src)} rows -> {len(texts)} texts (dropped empty/punct/dup)")
-    else:
-        for pos, v in enumerate(df_src.iloc[:, opts.src_col].tolist()):
-            if pd.isna(v):
-                continue
-            s = _clean_src_text(str(v))
-            if not _has_content(s) or s in seen:
-                continue
-            seen.add(s)
-            texts.append(s)
-            text_keys.append(key_list[pos] if key_list is not None else "")
-        logger.info(f"Source: {len(df_src)} rows -> {len(texts)} texts (dropped empty/punct/dup)")
+    texts, text_keys = prepare_source_texts(df_src, opts)
+    mode = "aligned" if opts.bilingual else "monolingual"
+    logger.info(
+        f"Source ({source_language}->{target_language}, {mode}): "
+        f"{len(df_src)} rows -> {len(texts)} texts (dropped empty/punct/dup)"
+    )
     if progress_callback:
         progress_callback("loading", 1, 1, f"{len(texts)} texts loaded, {len(glossary_keys)} glossary terms")
         progress_callback("extracting", 0, 1, "即将开始提取…")
@@ -712,16 +937,39 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAU
 
     if opts.no_translate:
         def _clean_no_translate(t):
-            eng = t.pop("eng_term", "") or ""
-            return {**t, "translation": eng, "match_type": "bilingual" if eng else "no_translate"}
+            aligned = _aligned_target_value(t, opts.bilingual, target_language)
+            t.pop("target_term", None)
+            t.pop("eng_term", None)
+            match_type = (
+                "bilingual"
+                if aligned and source_language == DEFAULT_SOURCE_LANGUAGE and target_language == DEFAULT_TARGET_LANGUAGE
+                else "aligned" if aligned else "no_translate"
+            )
+            return {**t, "translation": aligned, "match_type": match_type}
         results = [_clean_no_translate(t) for t in extracted]
-        logger.info(f"No-translate mode: {len(results)} terms, {sum(1 for r in results if r['match_type']=='bilingual')} with EN copied")
+        copied = sum(1 for r in results if r["match_type"] in {"bilingual", "aligned"})
+        logger.info(f"No-translate mode: {len(results)} terms, {copied} with aligned target copied")
     else:
         logger.info("Matching + translating via embedding...")
         if progress_callback:
             progress_callback("translating", 0, 1, f"Exact: {sum(1 for t in extracted if t['term'].lower() in glossary)} matched, translating rest...")
-        results = match_and_translate(extracted, glossary, profile, api_key, base_url, model, raw_dir=raw_dir, embed_store=embed_store, bilingual=opts.bilingual)
+        results = match_and_translate(
+            extracted,
+            glossary,
+            profile,
+            api_key,
+            base_url,
+            model,
+            raw_dir=raw_dir,
+            embed_store=embed_store,
+            bilingual=opts.bilingual,
+            source_language=source_language,
+            target_language=target_language,
+        )
         if progress_callback:
             progress_callback("translating", 1, 1, f"{len(results)} terms translated")
 
+    for result in results:
+        result.setdefault("source_language", source_language)
+        result.setdefault("target_language", target_language)
     return results

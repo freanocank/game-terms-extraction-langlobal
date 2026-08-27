@@ -8,12 +8,14 @@ English | [中文](README_ZH.md)
 
 ## Overview
 
- Game terminology extraction pipeline that uses an LLM to extract terms from Chinese game text and produce deliverable bilingual glossaries.
+ Game terminology extraction pipeline that uses an LLM to extract terms for a configurable source/target language pair and produce deliverable bilingual glossaries. The legacy default remains Simplified Chinese → English.
 
 ## Key Capabilities
 
 - Identifies term candidates from game text.
-- Generates English renderings and glossary fields.
+- Generates target-language renderings and glossary fields.
+- Supports one target language per run; the UI includes common localization languages and the CLI accepts normalized BCP 47-style language codes.
+- Reuses aligned target text when a workbook already contains source and target columns.
 - Outputs deliverable xlsx files.
 
 ## Usage
@@ -37,7 +39,19 @@ streamlit run ui/app.py
 # CLI: the existing glossary is optional
 python cli.py --source source.xlsx
 python cli.py --source source.xlsx --glossary glossary.xlsx
+
+# English → German using aligned workbook columns (zero-based indexes)
+python cli.py --source source.xlsx --source-lang en --target-lang de \
+  --src-col 2 --aligned-target --src-target-col 3 --key-col 0
+
+# English → French from the same workbook
+python cli.py --source source.xlsx --source-lang en --target-lang fr \
+  --src-col 2 --aligned-target --src-target-col 4 --key-col 0
 ```
+
+The UI auto-maps headers such as `EN-v2`, `DE-MT`, and `FR-MT`. CLI language codes are normalized and validated; code-level compatibility does not replace linguistic QA for a new language pair.
+
+For non-default source languages, legacy Chinese-specific profile rules are not reused. A profile can add `core_principle_by_source_language`, `extract_examples_by_source_language`, `extraction_notes_by_source_language`, `fewshot_examples_by_language_pair`, and `translation_rules_by_language_pair` mappings keyed by normalized codes such as `en` or `en->de`.
 
 ## API Service Configuration
 
@@ -56,7 +70,7 @@ The CLI also accepts matching `--ner-*` and `--embedding-*` options. Header dete
 
 ```
 source.xlsx + optional existing glossary.xlsx
-  ├─ AI column auto-detection (source column / Key column / bilingual English column / glossary ZH-EN columns)
+  ├─ column auto-detection (source / Key / aligned target / language-pair glossary columns)
   ├─ NER pre-scan (names/places)
   ├─ LLM term extraction (3-round voting; keep unanimous items)
   ├─ vector embedding match (exact hits use glossary entries)
@@ -68,6 +82,7 @@ source.xlsx + optional existing glossary.xlsx
 ```
 ├── core/
 │   ├── main.py             # pipeline orchestration
+│   ├── languages.py        # language-code registry and normalization
 │   ├── llm_extractor.py    # term extraction (3-round voting)
 │   ├── llm_translator.py   # term translation
 │   ├── embed_store.py      # vector store (SQLite + text-embedding-3-large)

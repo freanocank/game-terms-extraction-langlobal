@@ -25,6 +25,7 @@ from config_template import (
     DEFAULT_PROFILE,
 )
 from core.checkpoint import load as ckpt_load, load_meta as load_ckpt_meta, checkpoint_dir_name
+from core.languages import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE, validate_language_pair
 
 ROOT = Path(__file__).parent.parent
 
@@ -54,6 +55,8 @@ class RunConfig:
     max_concurrent: int = DEFAULT_CONCURRENT
     embed_workers: int = DEFAULT_EMBED_WORKERS
     max_tokens: int = DEFAULT_MAX_TOKENS
+    source_language: str = DEFAULT_SOURCE_LANGUAGE
+    target_language: str = DEFAULT_TARGET_LANGUAGE
     bilingual: bool = False
     no_translate: bool = False
     flag_unsourced: bool = True
@@ -75,7 +78,7 @@ SERVICE_LABELS = {
 
 
 PERSISTED_CONFIG_FIELDS = (
-    "api_base", "model", "profile",
+    "api_base", "model", "profile", "source_language", "target_language",
     "ner_use_main", "ner_api_base", "ner_model",
     "embedding_use_main", "embedding_api_base", "embedding_model",
     "detect_use_main", "detect_api_base", "detect_model",
@@ -117,6 +120,13 @@ def default_config() -> RunConfig:
         detect_model=_first_env("DETECT_MODEL") or DEFAULT_DETECT_MODEL,
     )
     _load_persisted_config(cfg)
+    try:
+        cfg.source_language, cfg.target_language = validate_language_pair(
+            cfg.source_language, cfg.target_language
+        )
+    except ValueError:
+        cfg.source_language = DEFAULT_SOURCE_LANGUAGE
+        cfg.target_language = DEFAULT_TARGET_LANGUAGE
     return cfg
 
 
@@ -134,13 +144,30 @@ def _load_persisted_config(cfg: RunConfig):
             pass
 
 
-def check_checkpoint(file_bytes: bytes, profile: str) -> dict:
+def check_checkpoint(
+    file_bytes: bytes,
+    profile: str,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> dict:
+    source_language, target_language = validate_language_pair(source_language, target_language)
     h = hashlib.md5(file_bytes).hexdigest()[:8]
     ckpt_root = ROOT / "output" / "_checkpoints"
     if not ckpt_root.exists():
         return {"exists": False, "chunk_idx": 0, "total_chunks": 0, "terms": 0}
     for d in ckpt_root.iterdir():
         if d.is_dir() and h in d.name and profile in d.name:
+            meta = load_ckpt_meta(str(d))
+            saved_pair = (
+                meta.get("source_language", DEFAULT_SOURCE_LANGUAGE),
+                meta.get("target_language", DEFAULT_TARGET_LANGUAGE),
+            )
+            try:
+                saved_pair = validate_language_pair(*saved_pair)
+            except ValueError:
+                continue
+            if saved_pair != (source_language, target_language):
+                continue
             ckpt = ckpt_load(str(d))
             if ckpt.get("chunk_idx", 0) > 0:
                 return {"exists": True, "chunk_idx": ckpt["chunk_idx"],
@@ -149,13 +176,29 @@ def check_checkpoint(file_bytes: bytes, profile: str) -> dict:
     return {"exists": False, "chunk_idx": 0, "total_chunks": 0, "terms": 0}
 
 
-def clear_checkpoint(file_bytes: bytes, profile: str):
+def clear_checkpoint(
+    file_bytes: bytes,
+    profile: str,
+    source_language: str = DEFAULT_SOURCE_LANGUAGE,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+):
+    source_language, target_language = validate_language_pair(source_language, target_language)
     h = hashlib.md5(file_bytes).hexdigest()[:8]
     ckpt_root = ROOT / "output" / "_checkpoints"
     if not ckpt_root.exists():
         return
     for d in ckpt_root.iterdir():
         if d.is_dir() and h in d.name and profile in d.name:
+            meta = load_ckpt_meta(str(d))
+            try:
+                saved_pair = validate_language_pair(
+                    meta.get("source_language", DEFAULT_SOURCE_LANGUAGE),
+                    meta.get("target_language", DEFAULT_TARGET_LANGUAGE),
+                )
+            except ValueError:
+                continue
+            if saved_pair != (source_language, target_language):
+                continue
             shutil.rmtree(d)
 
 
@@ -597,12 +640,19 @@ class ProcessingTask:
 
             ckpt_root = ROOT / "output" / "_checkpoints"
             ckpt_root.mkdir(parents=True, exist_ok=True)
-            ckpt_dir = checkpoint_dir or str(ckpt_root / checkpoint_dir_name(src_bytes, cfg.profile))
+            ckpt_dir = checkpoint_dir or str(ckpt_root / checkpoint_dir_name(
+                src_bytes,
+                cfg.profile,
+                cfg.source_language,
+                cfg.target_language,
+            ))
             Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
 
             ner_service = resolve_service_settings(cfg, "ner")
             embedding_service = resolve_service_settings(cfg, "embedding")
             opts = PipelineOpts(
+                source_language=cfg.source_language,
+                target_language=cfg.target_language,
                 bilingual=cfg.bilingual, no_translate=cfg.no_translate,
                 src_col=src_col, src_en_col=src_en_col, key_col=key_col,
                 gl_cn_col=gl_cn_col, gl_en_col=gl_en_col,

@@ -25,6 +25,11 @@ from core.main import (
     results_workbook_bytes,
     template_workbook_bytes,
 )
+from core.languages import (
+    COMMON_LANGUAGE_CODES,
+    language_label,
+    language_name,
+)
 from ui.ui_backend import (
     RunConfig, default_config, ProcessingTask,
     get_all_models, add_model_and_select, remove_model,
@@ -545,7 +550,10 @@ if st.session_state.cfg is None:
     st.session_state.cfg = cfg
 
 # Resolve pending widget changes from previous handler runs (before any widget renders)
-for _key in ("sel_model", "sel_profile", "_src_col", "_gl_cn_col", "_gl_en_col", "_key_col", "_src_en_col", "_bilingual"):
+for _key in (
+    "sel_model", "sel_profile", "_source_language", "_target_language",
+    "_src_col", "_gl_cn_col", "_gl_en_col", "_key_col", "_src_en_col", "_bilingual",
+):
     _pending = f"_pending_{_key}"
     if _pending in st.session_state:
         st.session_state[_key] = st.session_state.pop(_pending)
@@ -586,6 +594,17 @@ def _retry_header_detection():
     }
     st.session_state._retry_col_detection = True
     st.session_state.pop("_col_detected", None)
+
+
+def _language_pair_changed():
+    cfg = st.session_state.get("cfg")
+    if cfg is not None:
+        cfg.source_language = st.session_state.get("_source_language", cfg.source_language)
+        cfg.target_language = st.session_state.get("_target_language", cfg.target_language)
+        save_persisted_config(cfg)
+    st.session_state.pop("_col_detected", None)
+    st.session_state.pop("_col_info", None)
+    st.session_state.pop("_col_errors", None)
 
 
 _ensure_selection("sel_model", "model", get_all_models())
@@ -965,18 +984,51 @@ elif page_id == "process":
     cfg = st.session_state.cfg
     _sync_cfg()
 
-    _step_heading(1, "上传输入文件")
+    _step_heading(1, "选择语言对并上传输入文件")
+    language_options = list(COMMON_LANGUAGE_CODES)
+    for configured_language in (cfg.source_language, cfg.target_language):
+        if configured_language not in language_options:
+            language_options.append(configured_language)
+    _ensure_widget_choice("_source_language", language_options, cfg.source_language)
+    _ensure_widget_choice("_target_language", language_options, cfg.target_language)
+    lang_col1, lang_col2 = st.columns(2)
+    with lang_col1:
+        source_language = st.selectbox(
+            "源语言",
+            language_options,
+            key="_source_language",
+            format_func=language_label,
+            on_change=_language_pair_changed,
+        )
+    with lang_col2:
+        target_language = st.selectbox(
+            "目标语言",
+            language_options,
+            key="_target_language",
+            format_func=language_label,
+            on_change=_language_pair_changed,
+        )
+    cfg.source_language = source_language
+    cfg.target_language = target_language
+    source_language_name = language_name(source_language)
+    target_language_name = language_name(target_language)
+    source_column_name = "中文" if source_language == "zh-Hans" else source_language_name
+    target_column_name = "英文" if target_language == "en" else target_language_name
+    language_pair_valid = source_language != target_language
+    if not language_pair_valid:
+        st.error("源语言和目标语言不能相同。")
+
     col1, col2 = st.columns(2)
     with col1:
         src_file = st.file_uploader(
             "源文本文件（必填，.xlsx）", type=["xlsx"], key="src_upload",
-            help="上传包含待提取中文文本的 Excel 文件。首行应为列名。",
+            help=f"上传包含待提取{source_column_name}文本的 Excel 文件。首行应为列名。",
             on_change=lambda: st.session_state.pop("_col_detected", None),
         )
     with col2:
         gl_file = st.file_uploader(
             "已有双语术语表（可选，.xlsx）", type=["xlsx"], key="gl_upload",
-            help="用于沿用已有中英译法。不上传也可提取；新术语会由 AI 翻译。",
+            help=f"用于沿用已有{source_language_name}→{target_language_name}译法。不上传也可提取；新术语会由 AI 翻译。",
             on_change=lambda: st.session_state.pop("_col_detected", None),
         )
 
@@ -1037,6 +1089,8 @@ elif page_id == "process":
                     api_key=detect_service.api_key,
                     base_url=detect_service.api_base,
                     model=detect_service.model,
+                    source_language=cfg.source_language,
+                    target_language=cfg.target_language,
                 )
                 if d_src.get("method") == "default" and preserve_manual_on_failure:
                     for key in ("_src_col", "_key_col", "_src_en_col", "_bilingual"):
@@ -1073,6 +1127,8 @@ elif page_id == "process":
                     api_key=detect_service.api_key,
                     base_url=detect_service.api_base,
                     model=detect_service.model,
+                    source_language=cfg.source_language,
+                    target_language=cfg.target_language,
                 )
                 if d_gl.get("method") == "default" and preserve_manual_on_failure:
                     for key in ("_gl_cn_col", "_gl_en_col"):
@@ -1128,6 +1184,8 @@ elif page_id == "process":
                     "seed": "内置表头规则",
                     "ai": "AI 识别缓存",
                 }.get(result.get("cache_source"), "历史列映射（需确认）")
+            if result.get("method") == "rule":
+                return "语言列名自动匹配"
             return "未知方式（需确认）"
 
         summaries = []
@@ -1167,7 +1225,7 @@ elif page_id == "process":
             src_options = _ensure_widget_choice(
                 "_src_col", range(len(src_headers)), min(src.get("text_col", 0), len(src_headers) - 1)
             )
-            st.selectbox("待分析的中文源文本列", src_options,
+            st.selectbox(f"待分析的{source_column_name}源文本列", src_options,
                          format_func=lambda i: f"[{i}] {src_headers[i]}",
                          key="_src_col",
                          help="AI 会从这一列的文本中识别术语。")
@@ -1182,23 +1240,23 @@ elif page_id == "process":
                          help="用于保留每条源文本的唯一标识，并写入导出的标注模板 Key 值。")
             _ensure_widget_bool("_bilingual", cfg.bilingual)
             cfg.bilingual = st.checkbox(
-                "使用源文件中的现有英文译文",
+                f"使用源文件中的现有{target_column_name}译文",
                 key="_bilingual",
-                help="适用于中英双语源文件：直接沿用对应英文列，不重复翻译。")
+                help=f"适用于{source_language_name}→{target_language_name}双语源文件：直接沿用同行目标列，不重复翻译。")
             if cfg.bilingual:
                 src_en_options = _ensure_widget_choice(
                     "_src_en_col",
                     range(len(src_headers)),
                     min(src.get("en_col") if src.get("en_col") is not None else 1, len(src_headers) - 1),
                 )
-                st.selectbox("对应的英文译文列", src_en_options,
+                st.selectbox(f"对应的{target_column_name}译文列", src_en_options,
                              format_func=lambda i: f"[{i}] {src_headers[i]}",
                              key="_src_en_col")
             _ensure_widget_bool("_no_translate", cfg.no_translate)
             cfg.no_translate = st.checkbox(
                 "仅提取术语，不生成新译文",
                 key="_no_translate",
-                help="结果中保留术语与分类；未提供的英文译文将留空。")
+                help=f"结果中保留术语与分类；未提供的{target_language_name}译文将留空。")
         if eff_gl:
             gl_headers = col_info.get("gl_headers") or [str(c) for c in pd.read_excel(BytesIO(eff_gl)).columns]
             gl_cn_options = _ensure_widget_choice(
@@ -1209,11 +1267,11 @@ elif page_id == "process":
             )
             c1, c2 = st.columns(2)
             with c1:
-                st.selectbox("术语原文列", gl_cn_options,
+                st.selectbox(f"{source_language_name}术语原文列", gl_cn_options,
                              format_func=lambda i: f"[{i}] {gl_headers[i]}",
                              key="_gl_cn_col")
             with c2:
-                st.selectbox("术语译文列", gl_en_options,
+                st.selectbox(f"{target_language_name}术语译文列", gl_en_options,
                              format_func=lambda i: f"[{i}] {gl_headers[i]}",
                              key="_gl_en_col")
 
@@ -1246,6 +1304,8 @@ elif page_id == "process":
                             "bilingual": meta.get("bilingual", False),
                             "src_en_col": meta.get("src_en_col", 1),
                             "no_translate": meta.get("no_translate", False),
+                            "source_language": meta.get("source_language", "zh-Hans"),
+                            "target_language": meta.get("target_language", "en"),
                             "profile": meta.get("profile") or d.name.removeprefix("src_").rsplit("_", 1)[0],
                             "model": meta.get("model", ""),
                             "ner_use_main": meta.get("ner_use_main"),
@@ -1266,6 +1326,12 @@ elif page_id == "process":
         h = hashlib.md5(eff_src).hexdigest()[:8]
         for d in ckpt_root.iterdir():
             if d.is_dir() and h in d.name and cfg.profile in d.name:
+                meta = load_ckpt_meta(str(d))
+                if (
+                    meta.get("source_language", "zh-Hans") != cfg.source_language
+                    or meta.get("target_language", "en") != cfg.target_language
+                ):
+                    continue
                 sp = d / "source.xlsx"
                 gp = d / "glossary.xlsx"
                 if not sp.exists():
@@ -1276,7 +1342,12 @@ elif page_id == "process":
 
     # Per-file match
     if eff_src:
-        ckpt = check_checkpoint(eff_src, cfg.profile)
+        ckpt = check_checkpoint(
+            eff_src,
+            cfg.profile,
+            cfg.source_language,
+            cfg.target_language,
+        )
         if ckpt["exists"]:
             st.success(
                 f"发现该文件的可恢复任务：已处理 {ckpt['chunk_idx']}/{ckpt['total_chunks']} 个文本批次，"
@@ -1309,7 +1380,8 @@ elif page_id == "process":
                     extra = "" if has_files else "（缺少原始文件）"
                     fn_info = f"  `{c['src_filename']}`" if c.get("src_filename") else ""
                     ts = datetime.datetime.fromtimestamp(c.get("mtime", 0)).strftime("%m-%d %H:%M")
-                    st.caption(f"{ts} · {c['chunk_idx']}/{c['total']} 个批次 · {c['terms']} 条术语{fn_info}{extra}")
+                    pair = f"{c['source_language']}→{c['target_language']}"
+                    st.caption(f"{ts} · {pair} · {c['chunk_idx']}/{c['total']} 个批次 · {c['terms']} 条术语{fn_info}{extra}")
                 with col_c2:
                     if st.button("继续任务", key=f"resume_{c['name']}", disabled=not has_files, width="stretch"):
                         cfg.profile = c.get("profile") or cfg.profile
@@ -1318,6 +1390,10 @@ elif page_id == "process":
                         st.session_state._pending_sel_model = cfg.model
                         cfg.bilingual = c.get("bilingual", False)
                         cfg.no_translate = c.get("no_translate", False)
+                        cfg.source_language = c.get("source_language", "zh-Hans")
+                        cfg.target_language = c.get("target_language", "en")
+                        st.session_state._pending__source_language = cfg.source_language
+                        st.session_state._pending__target_language = cfg.target_language
                         if c.get("ner_use_main") is not None:
                             cfg.ner_use_main = bool(c["ner_use_main"])
                         cfg.ner_api_base = c.get("ner_api_base") or cfg.ner_api_base
@@ -1361,8 +1437,9 @@ elif page_id == "process":
                             st.rerun()
 
     if eff_src and cfg.profile:
-        reference_status = f"已加载 `{eff_gl_name}`" if eff_gl else "未提供，将直接生成新术语译文"
+        reference_status = f"已加载 `{eff_gl_name}`" if eff_gl else f"未提供，将直接生成{target_language_name}术语译文"
         st.caption(
+            f"语言对：`{cfg.source_language}→{cfg.target_language}`　·　"
             f"项目规则：`{cfg.profile}`　·　AI 模型：`{cfg.model}`　·　"
             f"参考术语：{reference_status}　·　提取并发：{cfg.max_concurrent}"
         )
@@ -1378,11 +1455,13 @@ elif page_id == "process":
     )
     if st.session_state.get("_col_errors"):
         blockers.append("修正无法读取的输入文件")
+    if not language_pair_valid:
+        blockers.append("选择不同的源语言和目标语言")
     can_run = not blockers
     if blockers:
         st.info("开始前还需：" + "；".join(blockers) + "。")
     elif eff_gl is None:
-        st.info("未上传参考术语表：本次仍可正常提取，英文译文将由 AI 生成。")
+        st.info(f"未上传参考术语表：本次仍可正常提取，{target_language_name}译文将由 AI 生成。")
 
     col_btn1, col_btn2, _ = st.columns([1.4, 1.15, 4])
     with col_btn1:
@@ -1396,7 +1475,7 @@ elif page_id == "process":
                 gl_path.write_bytes(eff_gl)
             else:
                 gl_path = tmp_dir / "_empty_reference_glossary.xlsx"
-                gl_path.write_bytes(empty_glossary_bytes())
+                gl_path.write_bytes(empty_glossary_bytes(cfg.source_language, cfg.target_language))
 
             run_gl_cn_col = gl_cn_col if eff_gl is not None else 0
             run_gl_en_col = gl_en_col if eff_gl is not None else 1
@@ -1427,6 +1506,8 @@ elif page_id == "process":
                         df=pd.read_excel(BytesIO(eff_src), nrows=3),
                         base_url=detect_service.api_base,
                         model=detect_service.model,
+                        source_language=cfg.source_language,
+                        target_language=cfg.target_language,
                     )
                 detected_gl = _ci.get("gl", {})
                 glossary_changed = bool(detected_gl) and (
@@ -1442,6 +1523,8 @@ elif page_id == "process":
                         df=pd.read_excel(BytesIO(eff_gl), nrows=3),
                         base_url=detect_service.api_base,
                         model=detect_service.model,
+                        source_language=cfg.source_language,
+                        target_language=cfg.target_language,
                     )
             except Exception:
                 st.session_state._mapping_cache_warning = "列映射记忆失败，本次提取不受影响。"
@@ -1514,9 +1597,9 @@ elif page_id == "process":
         display_cols = [c for c in cols if c in df.columns]
         if display_cols:
             preview_df = df[display_cols].rename(columns={
-                "term": "中文术语",
+                "term": f"{source_column_name}术语",
                 "category": "术语分类",
-                "translation": "英文译文",
+                "translation": f"{target_column_name}译文",
                 "match_type": "译文来源",
             })
             if "译文来源" in preview_df.columns:
@@ -1575,6 +1658,20 @@ elif page_id == "results":
                         st.rerun()
     else:
         df = pd.DataFrame(results)
+        result_source_language = (
+            str(df["source_language"].iloc[0])
+            if "source_language" in df.columns and not df.empty
+            else st.session_state.cfg.source_language
+        )
+        result_target_language = (
+            str(df["target_language"].iloc[0])
+            if "target_language" in df.columns and not df.empty
+            else st.session_state.cfg.target_language
+        )
+        result_source_name = "中文" if result_source_language == "zh-Hans" else language_name(result_source_language)
+        result_target_name = "英文" if result_target_language == "en" else language_name(result_target_language)
+        source_term_column = f"{result_source_name}术语"
+        target_translation_column = f"{result_target_name}译文"
         match_labels = MATCH_TYPE_SOURCE_LABELS
         match_counts = df["match_type"].value_counts() if "match_type" in df.columns else pd.Series(dtype="int64")
         categories = (
@@ -1623,7 +1720,7 @@ elif page_id == "results":
 
         st.header("译文来源")
         if not match_counts.empty:
-            source_order = ["沿用术语表", "AI 翻译", "沿用原文英文", "未生成译文", "其他"]
+            source_order = ["沿用术语表", "AI 翻译", "沿用原文英文", "沿用同行译文", "未生成译文", "其他"]
             source_counts = {label: 0 for label in source_order}
             for match_type, count in match_counts.items():
                 source_label = match_labels.get(match_type, "其他")
@@ -1640,7 +1737,7 @@ elif page_id == "results":
                     "顺序": source_order.index(source_label),
                 })
             source_df = pd.DataFrame(source_rows)
-            source_palette = ["#2f6f4e", "#3f6f8c", "#6d5687", "#64727e", "#a25757"]
+            source_palette = ["#2f6f4e", "#3f6f8c", "#6d5687", "#8a6d3b", "#64727e", "#a25757"]
             source_chart = (
                 alt.Chart(source_df)
                 .mark_bar(size=30, cornerRadius=7)
@@ -1762,9 +1859,9 @@ elif page_id == "results":
 
         st.header("全部术语")
         display_df = df.rename(columns={
-            "term": "中文术语",
+            "term": source_term_column,
             "category": "术语分类",
-            "translation": "英文译文",
+            "translation": target_translation_column,
             "match_type": "译文来源",
             "source_key": "文本 ID",
             "source_text": "来源原文",
@@ -1777,16 +1874,16 @@ elif page_id == "results":
         if "译文来源" in display_df.columns:
             display_df["译文来源"] = display_df["译文来源"].map(match_labels).fillna("其他")
         preferred_columns = [
-            "中文术语", "术语分类", "英文译文", "译文来源", "文本 ID", "来源原文",
+            source_term_column, "术语分类", target_translation_column, "译文来源", "文本 ID", "来源原文",
             "备注", "一致票数", "参考术语", "参考译文", "参考相似度",
         ]
         ordered_columns = [name for name in preferred_columns if name in display_df.columns]
         ordered_columns += [name for name in display_df.columns if name not in ordered_columns]
         display_df = display_df[ordered_columns]
         display_column_config = {
-            "中文术语": st.column_config.TextColumn("中文术语", width="medium"),
+            source_term_column: st.column_config.TextColumn(source_term_column, width="medium"),
             "术语分类": st.column_config.TextColumn("术语分类", width="medium"),
-            "英文译文": st.column_config.TextColumn("英文译文", width="medium"),
+            target_translation_column: st.column_config.TextColumn(target_translation_column, width="medium"),
             "译文来源": st.column_config.TextColumn("译文来源", width="small"),
             "文本 ID": st.column_config.TextColumn("文本 ID", width="small"),
             "来源原文": st.column_config.TextColumn("来源原文", width="large"),
