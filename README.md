@@ -18,6 +18,8 @@ English | [中文](README_ZH.md)
 - Reuses aligned target text when a workbook already contains source and target columns.
 - Outputs deliverable xlsx files.
 
+The UI automatically detects the source, Key, and optional aligned target columns. A detected target column enables row-aligned bilingual handling; otherwise the file is treated as monolingual. Users only open “View or change automatic configuration” when detection needs correction or the project forbids AI translation. Translation follows one order: exact glossary → verifiable term rendering from the aligned target cell → AI generation. Extraction always reads terms from the source-language column only, and rows are paired by Excel row number rather than Key/ID. A target cell contains a full-sentence translation, so it may not provide a verifiable rendering for every extracted term. “Existing translations only” keeps glossary and aligned matches but leaves unresolved items blank.
+
 ## Usage
 
  Prepare source text according to the README input format and run the extraction scripts.
@@ -73,8 +75,7 @@ source.xlsx + optional existing glossary.xlsx
   ├─ column auto-detection (source / Key / aligned target / language-pair glossary columns)
   ├─ NER pre-scan (names/places)
   ├─ LLM term extraction (3-round voting; keep unanimous items)
-  ├─ vector embedding match (exact hits use glossary entries)
-  └─ LLM translation (new terms)
+  └─ unified translation resolution (exact glossary → optional aligned target row → AI for unresolved terms by default)
         ├─ results.xlsx (raw results with debug fields)
         └─ 候选术语_模板.xlsx (8-column annotation template with source-row Key; review_status=unreviewed)
 ```

@@ -56,6 +56,7 @@ class FakeProcessingTask:
             "source_language": cfg.source_language,
             "target_language": cfg.target_language,
             "bilingual": cfg.bilingual,
+            "no_translate": cfg.no_translate,
             "kwargs": kwargs,
         })
 
@@ -95,6 +96,9 @@ with tempfile.TemporaryDirectory() as tmp:
     check("persisted EN→DE language pair initializes in the UI", (
         source_language.value == "en" and target_language.value == "de"
     ), {"source": source_language.value, "target": target_language.value})
+    check("UI explains that processing follows the selected language pair", any(
+        "自动随语言对调整" in item.value for item in at.caption
+    ))
 
     at.file_uploader[0].upload(
         "multilingual.xlsx",
@@ -105,19 +109,46 @@ with tempfile.TemporaryDirectory() as tmp:
           [item.message for item in at.exception])
 
     source_column = next(item for item in at.selectbox if item.label == "待分析的英语源文本列")
-    de_column = next(item for item in at.selectbox if item.label == "对应的德语译文列")
-    aligned_checkbox = next(item for item in at.checkbox if item.label == "使用源文件中的现有德语译文")
+    de_column = next(item for item in at.selectbox if item.label == "同行德语译文列（可选）")
     check("UI auto-maps EN-v2 and DE-MT", (
-        source_column.value == 2 and de_column.value == 3 and aligned_checkbox.value
-    ), {"source": source_column.value, "target": de_column.value, "aligned": aligned_checkbox.value})
+        source_column.value == 2 and de_column.value == 3
+    ), {"source": source_column.value, "target": de_column.value})
+    check("aligned target selector cannot reuse the source column", not any(
+        option == source_column.value or str(option).startswith(f"[{source_column.value}]")
+        for option in de_column.options
+    ), de_column.options)
+    check("common flow hides configuration behind one optional disclosure", (
+        not any(item.label in {"源文件结构", "缺失译文处理"} for item in at.radio)
+        and any("处理已就绪" in item.value and "同行双语" in item.value for item in at.success)
+        and any(item.label == "查看或修改自动配置" for item in at.expander)
+    ))
     check("UI reports deterministic language-header matching", any(
         "语言列名自动匹配" in item.value for item in at.caption
     ))
 
+    de_column.set_value(-1).run()
+    check("choosing no aligned target automatically switches to monolingual handling", (
+        any("处理已就绪" in item.value and "单语" in item.value for item in at.success)
+        and any("生成德语译文" in item.value for item in at.caption)
+    ))
+
     target_language = next(item for item in at.selectbox if item.label == "目标语言")
     target_language.set_value("fr").run()
-    fr_column = next(item for item in at.selectbox if item.label == "对应的法语译文列")
+    fr_column = next(item for item in at.selectbox if item.label == "同行法语译文列（可选）")
     check("switching the target language remaps the aligned target column", fr_column.value == 4, fr_column.value)
+
+    existing_only = next(
+        item for item in at.checkbox
+        if item.label == "只沿用现有译文（不调用 AI 翻译）"
+    )
+    existing_only.set_value(True).run()
+    check("AI opt-out remains available as an advanced edge-case option", (
+        next(
+            item for item in at.checkbox
+            if item.label == "只沿用现有译文（不调用 AI 翻译）"
+        ).value
+        and any("无法可靠对应的术语译文留空" in item.value for item in at.caption)
+    ))
 
     start = next(button for button in at.button if button.label == "开始提取术语")
     check("valid EN→FR input enables extraction", not start.disabled)
@@ -127,6 +158,7 @@ with tempfile.TemporaryDirectory() as tmp:
         and FakeProcessingTask.calls[0]["source_language"] == "en"
         and FakeProcessingTask.calls[0]["target_language"] == "fr"
         and FakeProcessingTask.calls[0]["bilingual"]
+        and FakeProcessingTask.calls[0]["no_translate"]
         and FakeProcessingTask.calls[0]["kwargs"]["src_col"] == 2
         and FakeProcessingTask.calls[0]["kwargs"]["src_en_col"] == 4
         and FakeProcessingTask.calls[0]["kwargs"]["key_col"] == 0

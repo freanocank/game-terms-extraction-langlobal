@@ -55,6 +55,8 @@ class FakeProcessingTask:
         self.calls.append({
             "source_path": source_path,
             "glossary_path": glossary_path,
+            "bilingual": cfg.bilingual,
+            "no_translate": cfg.no_translate,
             "kwargs": kwargs,
         })
 
@@ -141,6 +143,9 @@ with tempfile.TemporaryDirectory() as tmp:
     labels = [item.label for item in at.selectbox]
     ck("source column mapping is available", "待分析的中文源文本列" in labels, labels)
     ck("optional text ID mapping is available", "文本 ID 列（可选）" in labels, labels)
+    target_mapping = next(item for item in at.selectbox if item.label == "同行英文译文列（可选）")
+    ck("source-only file defaults to no aligned target column", target_mapping.value == -1,
+       target_mapping.value)
 
     source_mapping = next(item for item in at.selectbox if item.label == "待分析的中文源文本列")
     source_mapping.set_value(0).run()
@@ -156,13 +161,19 @@ with tempfile.TemporaryDirectory() as tmp:
 
     start = next(button for button in at.button if button.label == "开始提取术语")
     ck("source-only upload enables extraction", not start.disabled)
-    ck("UI explains optional glossary behavior", any(
-        "未上传参考术语表" in item.value for item in at.info
+    ck("UI explains automatic monolingual handling", (
+        any("处理已就绪" in item.value and "单语" in item.value for item in at.success)
+        and any("生成英语译文" in item.value for item in at.caption)
     ))
 
     start.click().run()
     ck("source-only start reaches processing task", len(FakeProcessingTask.calls) == 1,
        FakeProcessingTask.calls)
+    ck("source-only start derives monolingual mode from the target-column choice", (
+        len(FakeProcessingTask.calls) == 1
+        and not FakeProcessingTask.calls[0]["bilingual"]
+        and FakeProcessingTask.calls[0]["kwargs"]["src_en_col"] == -1
+    ), FakeProcessingTask.calls)
     ck("manual correction is recorded with v2 cache context", (
         len(correction_calls) == 1
         and isinstance(correction_calls[0][1].get("df"), pd.DataFrame)

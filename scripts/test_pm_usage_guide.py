@@ -169,11 +169,15 @@ def main():
         "term_project_", "术语表_", "仅补空白字段", "未审核",
         "Key值", "术语分类", "术语原文", "术语译文", "备注",
         "来源原文", "审核状态", "最新修订时间",
+        "同行目标译文列", "查看或修改自动配置", "处理已就绪",
+        "可选：沿用已有术语表", "只沿用现有译文", "整行译文",
+        "--source-lang", "--target-lang", "--src-target-col", "--no-translate",
         "正式支持平台：Windows 10/11", "其他平台未经过正式验证",
     ]
     for text in required_text:
         require(text in body_text, f"missing visible text: {text}")
     require("terms_extraction_results.xlsx" not in body_text, "stale result filename")
+    require("程序的新译目标固定为英文" not in body_text, "stale English-only limitation")
     require("/Users/" not in body_text, "personal absolute path")
     columns = [
         "Key值", "术语分类", "术语原文", "术语译文", "备注",

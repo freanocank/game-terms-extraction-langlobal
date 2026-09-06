@@ -480,7 +480,7 @@ def _page_intro(kicker: str, title: str, copy: str, show_pipeline: bool = False)
         <div class="lg-pipeline" aria-label="术语处理流程">
             <span class="lg-pipeline__node">源文本</span><span aria-hidden="true">→</span>
             <span class="lg-pipeline__node">术语提取</span><span aria-hidden="true">→</span>
-            <span class="lg-pipeline__node">译文生成</span><span aria-hidden="true">→</span>
+            <span class="lg-pipeline__node">译文处理</span><span aria-hidden="true">→</span>
             <span class="lg-pipeline__node">审核导出</span>
         </div>
     """ if show_pipeline else ""
@@ -552,7 +552,7 @@ if st.session_state.cfg is None:
 # Resolve pending widget changes from previous handler runs (before any widget renders)
 for _key in (
     "sel_model", "sel_profile", "_source_language", "_target_language",
-    "_src_col", "_gl_cn_col", "_gl_en_col", "_key_col", "_src_en_col", "_bilingual",
+    "_src_col", "_gl_cn_col", "_gl_en_col", "_key_col", "_src_en_col", "_no_translate",
 ):
     _pending = f"_pending_{_key}"
     if _pending in st.session_state:
@@ -589,7 +589,7 @@ def _ensure_widget_bool(key: str, fallback: bool):
 def _retry_header_detection():
     st.session_state._retry_manual_values = {
         key: st.session_state[key]
-        for key in ("_src_col", "_key_col", "_src_en_col", "_bilingual", "_gl_cn_col", "_gl_en_col")
+        for key in ("_src_col", "_key_col", "_src_en_col", "_gl_cn_col", "_gl_en_col")
         if key in st.session_state
     }
     st.session_state._retry_col_detection = True
@@ -973,7 +973,7 @@ elif page_id == "process":
     _page_intro(
         "TERM EXTRACTION",
         "提取游戏术语",
-        "上传源文本，确认需要分析的列，然后开始提取。已有双语术语表可选，用于沿用项目的既有译法。",
+        "选择语言并上传源文本，系统会自动识别列并准备提取。已有双语术语表可选，用于沿用项目的既有译法。",
         show_pipeline=True,
     )
 
@@ -984,7 +984,7 @@ elif page_id == "process":
     cfg = st.session_state.cfg
     _sync_cfg()
 
-    _step_heading(1, "选择语言对并上传输入文件")
+    _step_heading(1, "选择语言并上传文件")
     language_options = list(COMMON_LANGUAGE_CODES)
     for configured_language in (cfg.source_language, cfg.target_language):
         if configured_language not in language_options:
@@ -1017,18 +1017,24 @@ elif page_id == "process":
     language_pair_valid = source_language != target_language
     if not language_pair_valid:
         st.error("源语言和目标语言不能相同。")
+    else:
+        st.caption("单次任务处理一个目标语言，后续配置会自动随语言对调整。")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        src_file = st.file_uploader(
-            "源文本文件（必填，.xlsx）", type=["xlsx"], key="src_upload",
-            help=f"上传包含待提取{source_column_name}文本的 Excel 文件。首行应为列名。",
-            on_change=lambda: st.session_state.pop("_col_detected", None),
-        )
-    with col2:
+    src_file = st.file_uploader(
+        "源文本文件（必填，.xlsx）", type=["xlsx"], key="src_upload",
+        help=f"上传包含待提取{source_column_name}文本的 Excel 文件。首行应为列名。",
+        on_change=lambda: st.session_state.pop("_col_detected", None),
+    )
+    glossary_expanded = bool(
+        st.session_state.get("gl_upload") or st.session_state.get("_gl_cache")
+    )
+    with st.expander("可选：沿用已有术语表", expanded=glossary_expanded):
         gl_file = st.file_uploader(
             "已有双语术语表（可选，.xlsx）", type=["xlsx"], key="gl_upload",
-            help=f"用于沿用已有{source_language_name}→{target_language_name}译法。不上传也可提取；新术语会由 AI 翻译。",
+            help=(
+                f"用于沿用已有{source_language_name}→{target_language_name}译法。"
+                "不上传也可提取；系统会自动生成其余术语译文。"
+            ),
             on_change=lambda: st.session_state.pop("_col_detected", None),
         )
 
@@ -1069,7 +1075,7 @@ elif page_id == "process":
     src_col = st.session_state.get("_src_col", 0)
     gl_cn_col = st.session_state.get("_gl_cn_col", 0)
     gl_en_col = st.session_state.get("_gl_en_col", 1)
-    src_en_col = st.session_state.get("_src_en_col", 1)
+    src_en_col = st.session_state.get("_src_en_col", -1)
     key_col = st.session_state.get("_key_col", -1)
 
     if (eff_src or eff_gl) and not st.session_state.get("_col_detected"):
@@ -1093,24 +1099,24 @@ elif page_id == "process":
                     target_language=cfg.target_language,
                 )
                 if d_src.get("method") == "default" and preserve_manual_on_failure:
-                    for key in ("_src_col", "_key_col", "_src_en_col", "_bilingual"):
+                    for key in ("_src_col", "_key_col", "_src_en_col"):
                         if key in retry_manual_values:
                             st.session_state[f"_pending_{key}"] = retry_manual_values[key]
                     manual_key = retry_manual_values.get("_key_col", -1)
-                    manual_bilingual = bool(retry_manual_values.get("_bilingual", False))
+                    manual_target = retry_manual_values.get("_src_en_col", -1)
                     d_src = {
                         **d_src,
                         "text_col": retry_manual_values.get("_src_col", d_src["text_col"]),
                         "key_col": None if manual_key is None or manual_key < 0 else manual_key,
-                        "en_col": retry_manual_values.get("_src_en_col") if manual_bilingual else None,
+                        "en_col": None if manual_target is None or manual_target < 0 else manual_target,
                         "manual_preserved": True,
                     }
                 else:
                     st.session_state._pending__src_col = d_src["text_col"]
                     st.session_state._pending__key_col = d_src["key_col"] if d_src.get("key_col") is not None else -1
-                    st.session_state._pending__bilingual = d_src.get("en_col") is not None
-                    if d_src.get("en_col") is not None:
-                        st.session_state._pending__src_en_col = d_src["en_col"]
+                    st.session_state._pending__src_en_col = (
+                        d_src["en_col"] if d_src.get("en_col") is not None else -1
+                    )
                 detected_info.update({
                     "src": d_src,
                     "src_headers": [str(c) for c in df_src.columns],
@@ -1161,10 +1167,6 @@ elif page_id == "process":
     if mapping_cache_warning:
         st.warning(mapping_cache_warning)
 
-    _step_heading(2, "确认列映射与处理选项")
-    if not col_info:
-        st.caption("上传有效的源文本后，这里会显示自动识别的列映射和处理选项。")
-
     if col_info:
         src = col_info.get("src", {})
         gl = col_info.get("gl", {})
@@ -1193,7 +1195,6 @@ elif page_id == "process":
             summaries.append(f"源文本列依据：{_method_label(src)}")
         if gl:
             summaries.append(f"参考术语列依据：{_method_label(gl)}")
-        st.caption("　·　".join(summaries))
 
         fallback_items = []
         fallback_codes = []
@@ -1225,38 +1226,22 @@ elif page_id == "process":
             src_options = _ensure_widget_choice(
                 "_src_col", range(len(src_headers)), min(src.get("text_col", 0), len(src_headers) - 1)
             )
-            st.selectbox(f"待分析的{source_column_name}源文本列", src_options,
-                         format_func=lambda i: f"[{i}] {src_headers[i]}",
-                         key="_src_col",
-                         help="AI 会从这一列的文本中识别术语。")
+            src_col = st.session_state["_src_col"]
             key_options = _ensure_widget_choice(
                 "_key_col",
                 range(-1, len(src_headers)),
                 src.get("key_col") if src.get("key_col") is not None else -1,
             )
-            st.selectbox("文本 ID 列（可选）", key_options,
-                         format_func=lambda i: "（未设置）" if i == -1 else f"[{i}] {src_headers[i]}",
-                         key="_key_col",
-                         help="用于保留每条源文本的唯一标识，并写入导出的标注模板 Key 值。")
-            _ensure_widget_bool("_bilingual", cfg.bilingual)
-            cfg.bilingual = st.checkbox(
-                f"使用源文件中的现有{target_column_name}译文",
-                key="_bilingual",
-                help=f"适用于{source_language_name}→{target_language_name}双语源文件：直接沿用同行目标列，不重复翻译。")
-            if cfg.bilingual:
-                src_en_options = _ensure_widget_choice(
-                    "_src_en_col",
-                    range(len(src_headers)),
-                    min(src.get("en_col") if src.get("en_col") is not None else 1, len(src_headers) - 1),
-                )
-                st.selectbox(f"对应的{target_column_name}译文列", src_en_options,
-                             format_func=lambda i: f"[{i}] {src_headers[i]}",
-                             key="_src_en_col")
-            _ensure_widget_bool("_no_translate", cfg.no_translate)
-            cfg.no_translate = st.checkbox(
-                "仅提取术语，不生成新译文",
-                key="_no_translate",
-                help=f"结果中保留术语与分类；未提供的{target_language_name}译文将留空。")
+            key_col = st.session_state["_key_col"]
+            detected_target = src.get("en_col")
+            target_fallback = detected_target if detected_target != src_col else -1
+            src_en_options = _ensure_widget_choice(
+                "_src_en_col",
+                [-1] + [i for i in range(len(src_headers)) if i != src_col],
+                target_fallback if target_fallback is not None else -1,
+            )
+            src_en_col = st.session_state["_src_en_col"]
+            cfg.bilingual = src_en_col >= 0
         if eff_gl:
             gl_headers = col_info.get("gl_headers") or [str(c) for c in pd.read_excel(BytesIO(eff_gl)).columns]
             gl_cn_options = _ensure_widget_choice(
@@ -1265,20 +1250,96 @@ elif page_id == "process":
             gl_en_options = _ensure_widget_choice(
                 "_gl_en_col", range(len(gl_headers)), min(gl.get("en_col", 1), len(gl_headers) - 1)
             )
-            c1, c2 = st.columns(2)
-            with c1:
-                st.selectbox(f"{source_language_name}术语原文列", gl_cn_options,
-                             format_func=lambda i: f"[{i}] {gl_headers[i]}",
-                             key="_gl_cn_col")
-            with c2:
-                st.selectbox(f"{target_language_name}术语译文列", gl_en_options,
-                             format_func=lambda i: f"[{i}] {gl_headers[i]}",
-                             key="_gl_en_col")
+            gl_cn_col = st.session_state["_gl_cn_col"]
+            gl_en_col = st.session_state["_gl_en_col"]
+
+        if eff_src:
+            _ensure_widget_bool("_no_translate", cfg.no_translate)
+            cfg.no_translate = bool(st.session_state["_no_translate"])
+            source_display = f"[{src_col}] {src_headers[src_col]}"
+            key_display = "无" if key_col < 0 else f"[{key_col}] {src_headers[key_col]}"
+            if cfg.bilingual:
+                target_display = f"[{src_en_col}] {src_headers[src_en_col]}"
+                ready_summary = (
+                    f"处理已就绪｜同行双语 · 源文本：{source_display} · "
+                    f"同行{target_language_name}：{target_display} · ID：{key_display}"
+                )
+            else:
+                ready_summary = f"处理已就绪｜单语 · 源文本：{source_display} · ID：{key_display}"
+            st.success(ready_summary)
+            if cfg.no_translate:
+                behavior_summary = "系统只沿用现有译文；无法可靠对应的术语译文留空。"
+            else:
+                behavior_summary = f"系统会沿用可用译文，并为其余术语生成{target_language_name}译文。"
+            if cfg.bilingual:
+                behavior_summary += " 同行列按 Excel 行号对应，术语仍只从源文本列提取。"
+            st.caption(behavior_summary)
+
+        needs_mapping_review = bool(fallback_items or st.session_state.get("_col_errors"))
+        expander_label = "核对自动配置" if needs_mapping_review else "查看或修改自动配置"
+        with st.expander(expander_label, expanded=needs_mapping_review or cfg.no_translate):
+            if summaries:
+                st.caption("　·　".join(summaries))
+            if eff_src:
+                st.markdown("**源文件列**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    src_col = st.selectbox(
+                        f"待分析的{source_column_name}源文本列",
+                        src_options,
+                        format_func=lambda i: f"[{i}] {src_headers[i]}",
+                        key="_src_col",
+                        help="AI 只会从这一列的文本中识别术语。",
+                    )
+                with c2:
+                    key_col = st.selectbox(
+                        "文本 ID 列（可选）",
+                        key_options,
+                        format_func=lambda i: "（未设置）" if i == -1 else f"[{i}] {src_headers[i]}",
+                        key="_key_col",
+                        help="用于保留每条源文本的唯一标识，并写入导出的标注模板 Key 值。",
+                    )
+                src_en_col = st.selectbox(
+                    f"同行{target_column_name}译文列（可选）",
+                    src_en_options,
+                    format_func=lambda i: "无（按单语文件处理）" if i == -1 else f"[{i}] {src_headers[i]}",
+                    key="_src_en_col",
+                    help=(
+                        "源文件有逐行对应的目标语言列时选择它；没有就保持“无”。"
+                        "目标列只提供译文，不参与术语提取。"
+                    ),
+                )
+                cfg.bilingual = src_en_col >= 0
+            if eff_gl:
+                st.markdown("**参考术语表列**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    gl_cn_col = st.selectbox(
+                        f"{source_language_name}术语原文列",
+                        gl_cn_options,
+                        format_func=lambda i: f"[{i}] {gl_headers[i]}",
+                        key="_gl_cn_col",
+                    )
+                with c2:
+                    gl_en_col = st.selectbox(
+                        f"{target_language_name}术语译文列",
+                        gl_en_options,
+                        format_func=lambda i: f"[{i}] {gl_headers[i]}",
+                        key="_gl_en_col",
+                    )
+            if eff_src:
+                st.markdown("**特殊要求**")
+                cfg.no_translate = st.checkbox(
+                    "只沿用现有译文（不调用 AI 翻译）",
+                    key="_no_translate",
+                    help="术语仍会正常提取；术语表和同行目标列中可可靠对应的译文仍会沿用。",
+                )
+                st.caption("开启后，无法从术语表或同行目标列可靠取得译文的术语将留空。")
 
         src_col = st.session_state.get("_src_col", 0)
         gl_cn_col = st.session_state.get("_gl_cn_col", 0)
         gl_en_col = st.session_state.get("_gl_en_col", 1)
-        src_en_col = st.session_state.get("_src_en_col", 1)
+        src_en_col = st.session_state.get("_src_en_col", -1)
         key_col = st.session_state.get("_key_col", -1)
 
     # ── Checkpoint status ──────────────────────
@@ -1390,6 +1451,10 @@ elif page_id == "process":
                         st.session_state._pending_sel_model = cfg.model
                         cfg.bilingual = c.get("bilingual", False)
                         cfg.no_translate = c.get("no_translate", False)
+                        st.session_state._pending__src_en_col = (
+                            c.get("src_en_col", 1) if cfg.bilingual else -1
+                        )
+                        st.session_state._pending__no_translate = cfg.no_translate
                         cfg.source_language = c.get("source_language", "zh-Hans")
                         cfg.target_language = c.get("target_language", "en")
                         st.session_state._pending__source_language = cfg.source_language
@@ -1436,17 +1501,9 @@ elif page_id == "process":
                             st.session_state._process_notice = f"已删除未完成任务“{task_label}”。"
                             st.rerun()
 
-    if eff_src and cfg.profile:
-        reference_status = f"已加载 `{eff_gl_name}`" if eff_gl else f"未提供，将直接生成{target_language_name}术语译文"
-        st.caption(
-            f"语言对：`{cfg.source_language}→{cfg.target_language}`　·　"
-            f"项目规则：`{cfg.profile}`　·　AI 模型：`{cfg.model}`　·　"
-            f"参考术语：{reference_status}　·　提取并发：{cfg.max_concurrent}"
-        )
-
     st.divider()
 
-    _step_heading(3, "开始提取")
+    _step_heading(2, "开始提取")
     blockers = _run_blockers(
         eff_src is not None,
         cfg,
@@ -1460,8 +1517,6 @@ elif page_id == "process":
     can_run = not blockers
     if blockers:
         st.info("开始前还需：" + "；".join(blockers) + "。")
-    elif eff_gl is None:
-        st.info(f"未上传参考术语表：本次仍可正常提取，{target_language_name}译文将由 AI 生成。")
 
     col_btn1, col_btn2, _ = st.columns([1.4, 1.15, 4])
     with col_btn1:
@@ -1569,7 +1624,10 @@ elif page_id == "process":
                 "starting": "初始化中…",
                 "loading": "加载文件…",
                 "extracting": "AI 正在提取术语（3 轮一致性判断）…",
-                "translating": "正在沿用参考译文并生成新译文…",
+                "translating": (
+                    "正在整理现有译文…"
+                    if cfg.no_translate else "正在沿用参考译文并生成新译文…"
+                ),
                 "done": "完成",
             }
 

@@ -244,8 +244,8 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
         <tr><td class="t-key">API / 模型</td><td>准备兼容 OpenAI 的主生成服务密钥、Base URL 与模型名。NER、Embedding、表头识别默认继承主服务，也可分别配置独立密钥、地址和模型。密钥只在可信本机录入，不放进文档、截图或聊天。</td></tr>
         <tr><td class="t-key">PM 配置包</td><td>正式输入为「游戏术语抽取-项目配置包」中的 <span class="mono">Profile撰写指南.html</span> 与 <span class="mono">项目配置填写表.xlsx</span>；项目内 <span class="mono">docs/</span> 有同版副本。PM 只填黄色最后一列，不能把 xlsx 直接上传到主工具。</td></tr>
         <tr><td class="t-key">Profile</td><td>工程 / Agent 将填写表转成并审校为版本化 <span class="mono">profiles/*.yaml</span>。它决定提取口径、分类、后过滤及部分翻译规则；PM 开跑前必须核对所选文件名与归档版本一致。</td></tr>
-        <tr><td class="t-key">原文 xlsx</td><td>至少有一列待提取中文原文；建议同时保留稳定 Key / ID。双语模式还要有官方英文列。<b>有效数据必须放在第一个工作表</b>，该表首行为表头。</td></tr>
-        <tr><td class="t-key">术语表 xlsx</td><td>可选。上传时，第一个工作表至少有可指定的中文术语列和英文译文列，方向为中文 → 英文；主工具只载入<b>中文与英文同时非空</b>的行。没有历史术语时可不上传，系统会直接提取并生成新译文。</td></tr>
+        <tr><td class="t-key">原文 xlsx</td><td>至少有一列所选源语言的待提取原文；建议同时保留稳定 Key / ID。如有与源文本逐行对应的目标语言列，系统识别后会自动按双语处理；没有则按单语处理。系统按 Excel 行号配对，不按 Key / ID 关联。<b>有效数据必须放在第一个工作表</b>，该表首行为表头。</td></tr>
+        <tr><td class="t-key">术语表 xlsx</td><td>可选。上传时，第一个工作表至少有可指定的源语言术语列和目标语言译文列；主工具只载入<b>原文与译文同时非空</b>的行。没有历史术语时仍可提取，默认由 AI 生成其余术语译文。</td></tr>
         <tr><td class="t-key">工作表限制</td><td>主工具与标注工具都只读取每个工作簿的<b>第一个工作表</b>；后续工作表不会自动合并或作为回退。原文、已有术语、候选术语都要放在首表。</td></tr>
         <tr><td class="t-key">不变量</td><td>原文必须是可读取的 <span class="mono">.xlsx</span>，术语表如提供也必须是 <span class="mono">.xlsx</span>；列号在 CLI 中从 0 开始。主工具会清理占位符 / 标签，并跳过空值、纯标点与重复原文。</td></tr>
       </tbody>
@@ -301,9 +301,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
         <tr><td class="t-key">Q1–Q2</td><td><span class="mono">game_type</span></td><td>共同组成项目 / 世界观身份，进入提取与翻译提示。</td></tr>
         <tr><td class="t-key">Q4–Q6</td><td><span class="mono">core_principle</span>、<span class="mono">extract_examples</span>、<span class="mono">extraction_notes</span></td><td>决定抓什么、不抓什么和边界规则；转换草稿必须人工核对，不能照收默认古风规则。</td></tr>
         <tr><td class="t-key">Q7</td><td><span class="mono">term_categories</span></td><td>进入分类提示与投票选类；分类仍可能超纲，因此小样本必须查异常类别。</td></tr>
-        <tr><td class="t-key">Q9</td><td><span class="mono">translation_rules</span></td><td>注入需要 AI 新译的术语；术语表精确命中、双语原文照抄或“跳过翻译”不会走这套规则。</td></tr>
+        <tr><td class="t-key">Q9</td><td><span class="mono">translation_rules</span></td><td>注入需要 AI 新译的术语；术语表精确命中、同行目标列沿用或“只沿用已有译文”不会走这套规则。</td></tr>
         <tr><td class="t-key">Q10–Q11</td><td><span class="mono">fewshot_examples</span></td><td>正例与负例直接进入提取提示；负例的输出必须为空列表。</td></tr>
-        <tr><td class="t-key">Q3 / Q8 / Q12</td><td>任务说明 / 目标语 / 补充</td><td>Q3 与 Q12 当前不改变运行；Q8 当前也不能切换目标语，程序的新译目标固定为英文。若项目不是中→英，先停止并交工程评估，不能只改 Profile。</td></tr>
+        <tr><td class="t-key">Q3 / Q8 / Q12</td><td>任务说明 / 目标语 / 补充</td><td>Q3 与 Q12 当前不直接改变运行。Q8 用于确认项目目标语，但不会自动切换程序；操作员仍须在 UI 选择相同语言对。非默认语言对还应配置对应的 Profile 规则并安排该语言 LQA。</td></tr>
       </tbody>
     </table>
   </div>
@@ -315,8 +315,8 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="step"><div class="s-body"><b>启动。</b><span class="mono">run.bat</span> 会切换到自身所在目录并启动 Streamlit。浏览器未自动打开时，查看终端显示的地址，通常为 <span class="mono">localhost:8501</span>。不要关闭承载服务的终端窗口。</div></div>
     <div class="step"><div class="s-body"><b>其他平台的技术入口。</b>在项目根目录、已有可用 Python 环境时，依次运行 <span class="mono">pip install -r requirements.txt</span> 与 <span class="mono">streamlit run ui/app.py</span>。这只是源码入口，其他平台未经过正式验证。</div></div>
     <div class="step"><div class="s-body"><b>配置。</b>进入「设置」，先填写主生成服务的 <b>API 密钥</b>、地址和模型。NER、Embedding、表头识别默认继承主服务；若供应商不同，在「辅助 API 服务」中关闭继承并分别填写。各组都有独立连接测试。密钥只保存在当前进程内存，重启后从环境变量重新读取；在「项目规则与性能」选择已审核的版本化 Profile。</div></div>
-    <div class="step"><div class="s-body"><b>上传 xlsx。</b>在「提取术语」页上传必填的「源文本文件（xlsx）」；「已有双语术语表（xlsx）」可选。有效数据必须在第一个工作表；术语表中英文任一为空的行不会载入。</div></div>
-    <div class="step"><div class="s-body"><b>人工核对列。</b>确认「原文列」「Key列（可选）」「中文术语列」「英文翻译列」。有官方英文时开启「双语模式」并核对「原文英文列」；只提取不翻译时才开启「跳过翻译」。自动识别失败可能退回默认列，不能跳过这一步。</div></div>
+    <div class="step"><div class="s-body"><b>上传 xlsx。</b>在「提取术语」页选择源语言与目标语言，然后上传必填的「源文本文件（xlsx）」；已有术语表收在「可选：沿用已有术语表」中。有效数据必须在第一个工作表；术语表原文或译文任一为空的行不会载入。</div></div>
+    <div class="step"><div class="s-body"><b>检查自动配置。</b>页面显示「处理已就绪」且列名正确时可直接开始。只有页面告警或识别结果不对时，才展开「查看或修改自动配置」调整源文本、Key、同行目标与术语表列。项目明确禁止 AI 翻译时，也在这里开启「只沿用现有译文」。</div></div>
     <div class="step"><div class="s-body"><b>开始提取。</b>确认页面摘要中的 Profile、模型和并发后点 <span class="ui green">开始提取</span>。阶段依次显示初始化、加载、LLM 术语提取、匹配与翻译、完成；运行中可取消，但在途 API 请求不保证立即停止。</div></div>
     <div class="step"><div class="s-body"><b>下载并留档。</b>完成后先核对页面提取数量和预览，再到「结果」下载「标注模板 xlsx」与「原始结果 xlsx」。浏览器副本进入默认下载目录或提示的用户选择位置；项目磁盘副本位于 <span class="mono">output/run_YYYYMMDD_HHMMSS/</span>。历史列表只直接下载原始结果；点「加载」后可重新生成候选模板，但须核对当前 Profile 与新文件名，因此仍建议当轮归档。</div></div>
     <div class="step"><div class="s-body"><b>断点续跑。</b>只有原文、术语表、Profile 文件名与内容、模型、列设置和模式全部未变时才继续。当前断点身份不能自动证明这些内容一致；同名 Profile 被改过也可能混入旧结果。任一项变化就保留旧断点作证据并新开一轮，不点「继续」。</div></div>
@@ -327,7 +327,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
   <h3>主工具候选表字段</h3>
   <p>当前源码生成的候选模板为以下 8 列，所有候选初始均为「未审核」：</p>
   <div class="schema mono">Key值 / 术语分类 / 术语原文 / 术语译文 / 匹配来源 / 来源原文 / 审核状态 / 最新修订时间</div>
-  <p>「匹配来源」记录精确匹配、双语原文、AI 翻译或无需翻译等来源。保留候选表和原始结果，后续追溯时使用。</p>
+  <p>「匹配来源」记录术语表精确匹配、同行译文、AI 翻译或未生成译文等来源。保留候选表和原始结果，后续追溯时使用。</p>
 
   <h3 id="annotation">标注工具：两次导入、审核、保存、导出与回流</h3>
   <div class="steps">
@@ -339,7 +339,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
     <div class="step"><div class="s-body"><b>审核。</b>右侧 ✓ 在「未审核」与「已审核」间切换；黄 = 未审核，蓝 = 已审核，绿 = 译文在译文列命中。结合状态、分类、搜索和原文 / 译文筛选完成查漏。</div></div>
     <div class="step"><div class="s-body"><b>保存现场。</b>按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 或点「保存项目」，下载 <span class="mono">term_project_*.json</span>。该工程含原文、术语、分类及列配置，可加载续作或交接。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本；默认定时下载工程，浏览器每分钟草稿只兜底术语，不能代替人工归档。</div></div>
     <div class="step"><div class="s-body"><b>导出审定表。</b>点「导出术语表 (8列模板)」，得到 <span class="mono">术语表_*.xlsx</span>。已有非空 Key / 来源按原值导出；只有缺失字段才从原始工作簿首个命中行回填。原文中不存在的手工术语可保持空白。文件进入浏览器默认下载目录或提示的用户选择位置，项目内没有固定副本，必须人工归档。</div></div>
-    <div class="step"><div class="s-body"><b>回流。</b>下一轮把审定表上传到主工具的「术语表文件」。UI 会尝试自动识别「术语原文 / 术语译文」，仍须人工确认。CLI 使用该 8 列表时，中文列与英文列为 0 基索引 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>，不能沿用默认 0 / 1。</div></div>
+    <div class="step"><div class="s-body"><b>回流。</b>下一轮把审定表上传到主工具的「术语表文件」。UI 会尝试自动识别当前语言对的「术语原文 / 术语译文」，仍须人工确认。CLI 使用该 8 列表时，通用参数为 0 基索引 <span class="mono">--gl-source-col 2 --gl-target-col 3</span>，不能沿用默认 0 / 1。</div></div>
   </div>
 
   <h3>标注工具正式导出字段</h3>
@@ -368,7 +368,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 - [审校目录]/[slug]_Profile审校报告.md
 约束：
 1. 只读填写表，不改第三列示例或 PM 答案；只把第四列黄色区视为正式答案。
-2. Q1–Q7、Q10–Q11 任一空白则 FAIL；Q11 少于 3 条负例则 FAIL。Q8 非“英文/中→英”时停止并报告程序目标语不支持。
+2. Q1–Q7、Q10–Q11 任一空白则 FAIL；Q11 少于 3 条负例则 FAIL。Q8 如填写，需记录规范化语言代码与计划语言对；非默认语言对还要报告 Profile 专项规则和 LQA 安排是否齐备。
 3. 可先运行 import_project_form.py 生成 scaffold，但必须使用 --out 写入审校目录，不用 --force、不直接写 profiles/。脚本输出不能视为审校完成。
 4. 按 PM 原意规整 Q7 为逐项短分类；把 Q10 原文与术语(分类)配对成结构化正例；Q11 负例 output 必须为 []。不得编造世界观、专名或客户规则。
 5. 删除或裁决所有 TODO、默认占位和空列表项；Q3、Q8、Q12 的当前运行边界写进报告，不伪装为已生效规则。
@@ -388,8 +388,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 - 原文：[原文 xlsx 绝对路径]
 - 术语表：[术语表 xlsx 绝对路径]
 - Profile：[Profile 名]；已审核 YAML：[归档 YAML 绝对路径]
-- 预期原文 / Key / 官方英文列：[列名或 0 基索引]
-- 预期术语中文 / 英文列：[列名或 0 基索引]
+- 语言对：[源语言代码] → [目标语言代码]
+- 预期源文本 / Key / 同行目标列：[列名或 0 基索引；单语时省略同行目标列]
+- 预期术语原文 / 目标译文列：[列名或 0 基索引]
 输出要求：把检查结果写入 [环境检查报告绝对路径]，并在终端给出 PASS / FAIL 摘要。
 约束：
 1. 只读检查，不安装依赖、不调用外部 API、不改源码或输入文件。
@@ -399,7 +400,7 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 2. 报告可用 Python 命令和版本，验证 requirements 中关键模块能否导入。
 3. 确认 profiles/[Profile 名].yaml 存在；与归档 YAML 的 SHA-256 完全一致，且已通过指令 0 的 Profile 审校。只有“可解析”但无审校报告时直接标 FAIL。
 4. 列出两份 xlsx 的全部工作表名，但只读取第一个工作表做业务检查；报告首表名称、数据行数、表头与建议的 0 基列索引。若有效数据不在首表，直接标 FAIL，不得用后续工作表替代。
-5. 对术语表首表分别计数：中英同时非空的有效行、仅中文为空、仅英文为空、两列都为空；明确后三类运行时会跳过。术语表必须有可索引的中英两列。
+5. 对术语表首表分别计数：原文与译文同时非空的有效行、仅原文为空、仅译文为空、两列都为空；明确后三类运行时会跳过。术语表必须有当前语言对可索引的两列。
 6. 明确 Windows 为正式支持平台，其他平台只报告技术可运行性。
 失败报告：任一项失败立即标 FAIL，写明失败步骤、原始错误摘要、缺失文件 / 列及建议动作；不要为通过而修改预期。</code></pre>
   <p class="copy-note">输出是一份可留档的检查报告；没有发起任何计费 API 请求。</p>
@@ -414,7 +415,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 - 主生成服务 Base URL / 模型：[API Base URL] / [模型名]
 - NER 服务 Base URL / 模型：[可选，留空继承主服务]
 - Embedding 服务 Base URL / 模型：[可选，留空继承主服务]
-- 列索引：src=[原文列]，key=[Key列或省略]，gl_cn=[中文术语列]，gl_en=[英文译文列]
+- 语言对：source=[源语言代码]，target=[目标语言代码]
+- 列索引：src=[源文本列]，key=[Key列或省略]，gl_source=[术语原文列]，gl_target=[目标译文列]
+- 同行目标译文列：[列索引或省略]；AI 翻译：[默认开启，或仅在明确要求时关闭]
 - 输出目录：[输出目录绝对路径]
 - 并发上限：[正整数]
 输出要求：生成 results.xlsx、本轮候选术语标注表、实际 Profile YAML 快照，并写 [运行报告绝对路径]。
@@ -425,9 +428,9 @@ footer .f-text { font-family: var(--mono); font-size: 11px; color: var(--ink-sof
 4. 不自动操作 annotation/术语标注助手_v3.0.html，不声称完成人工审核。
 5. 开跑前把实际 profiles/[Profile 名].yaml 复制到输出目录，记录 SHA-256；若它与环境检查报告中的归档版本不同则停止。
 执行命令：
-python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" --base-url "[API Base URL]" --model "[模型名]" --output "[输出目录绝对路径]" --src-col [原文列] --concurrent [正整数]
-如有术语表，再加入 --glossary "[术语表 xlsx 绝对路径]" --gl-cn-col [中文术语列] --gl-en-col [英文译文列]；NER 或 Embedding 使用独立服务时，再加入对应的 --ner-base-url/--ner-model 或 --embedding-base-url/--embedding-model，密钥仍只从环境变量读取。
-若已确认 Key 列，再加入 --key-col [Key列]；若输入为官方双语，再加入 --bilingual --src-en-col [官方英文列]。
+python3 cli.py --source "[原文 xlsx 绝对路径]" --source-lang "[源语言代码]" --target-lang "[目标语言代码]" --profile "[Profile 名]" --base-url "[API Base URL]" --model "[模型名]" --output "[输出目录绝对路径]" --src-col [源文本列] --concurrent [正整数]
+如有术语表，再加入 --glossary "[术语表 xlsx 绝对路径]" --gl-source-col [术语原文列] --gl-target-col [目标译文列]；NER 或 Embedding 使用独立服务时，再加入对应的 --ner-base-url/--ner-model 或 --embedding-base-url/--embedding-model，密钥仍只从环境变量读取。
+若已确认 Key 列，再加入 --key-col [Key列]；若输入为同行双语，再加入 --aligned-target --src-target-col [同行目标列]；若只沿用已有译文、不调用 AI 翻译，再加入 --no-translate。
 检查：
 1. 进程退出码为 0，记录耗时与终端报告的术语数。
 2. 输出目录存在 results.xlsx 和一个候选模板；不要假定候选模板总是固定文件名。
@@ -475,10 +478,10 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" -
       <thead><tr><th>关口</th><th>检查方法</th><th>通过标准</th></tr></thead>
       <tbody>
         <tr><td class="t-key">PM 配置表</td><td>打开「项目信息填写表」首表，检查黄色第四列并逐题对照项目资料。</td><td>Q1–Q7、Q10–Q11 均有项目真实答案；Q11 至少 3 条负例；第三列示例未被覆盖。Q7 一行一类，Q10 每个“原文 → 术语(分类)”配对明确。</td></tr>
-        <tr><td class="t-key">Profile 结构</td><td>按指令 0 做重复键、YAML、类型、空项、分类引用和 prompt 冒烟检查。</td><td>全部硬检查 PASS；无未裁决 TODO / 默认占位；目标语为当前支持的英文；审校报告与版本化 YAML 均已归档。</td></tr>
+        <tr><td class="t-key">Profile 结构</td><td>按指令 0 做重复键、YAML、类型、空项、分类引用和 prompt 冒烟检查。</td><td>全部硬检查 PASS；无未裁决 TODO / 默认占位；本轮语言对及对应规则已记录，非默认语言对有 LQA 安排；审校报告与版本化 YAML 均已归档。</td></tr>
         <tr><td class="t-key">Profile 身份</td><td>比较 PM 归档 YAML、<span class="mono">profiles/</span> 实际文件和本轮输出内快照的 SHA-256。</td><td>三者完全一致；所选 Profile 名含明确版本；差异数 = 0。同名覆盖或缺少快照均不得发布。</td></tr>
         <tr><td class="t-key">Profile 小样</td><td>由 PM / 语言负责人预先选代表性小样，逐条标记漏报、误报、分类错和译文问题。</td><td>达到项目开始前约定的口径；仓库没有通用语义正确率 SLA，未约定门槛或未完成人工结论时不得写“已验证准确率”。</td></tr>
-        <tr><td class="t-key">输入可用</td><td>列出原文与术语表的工作表，只检查首表；记录首表名、行数、表头和实际列索引，并统计术语中英列完整性。</td><td>两份 xlsx 都可读，有效数据都在首表；原文列存在；术语中文 / 英文列存在。术语有效行 = 中英同时非空行，任一为空的跳过数已报告；空术语表也保留两列表头。</td></tr>
+        <tr><td class="t-key">输入可用</td><td>列出原文与术语表的工作表，只检查首表；记录首表名、行数、表头和实际列索引，并统计当前语言对术语列完整性。</td><td>两份 xlsx 都可读，有效数据都在首表；源文本列存在；术语原文 / 目标译文列存在。术语有效行 = 两列同时非空行，任一为空的跳过数已报告；空术语表也保留两列表头。</td></tr>
         <tr><td class="t-key">主工具数量</td><td>比较完成页数量、<span class="mono">results.xlsx</span> 数据行和候选表数据行。</td><td>三者数量完全相等；差异数 = 0。</td></tr>
         <tr><td class="t-key">主工具文件</td><td>检查本轮输出目录与下载留档。</td><td>原始结果和候选模板各 1 份，均可打开；候选表初始「未审核」数 = 总行数。</td></tr>
         <tr><td class="t-key">候选字段</td><td>按当前主工具契约检查 8 列及映射。</td><td>列名 / 顺序与本指南“主工具候选表字段”一致；候选 Key / 来源原文与主结果 source_key / source_text 差异数 = 0。source_text 可为清洗文本或双语拼接，不要求等于原始单元格。</td></tr>
@@ -488,7 +491,7 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" -
         <tr><td class="t-key">导入来源保留</td><td>结合候选表与操作记录，比较人工审定表的非空 Key / 来源字段。</td><td>有记录时，导入后非空值按原值保留；「仅补空白字段」不得覆盖本地已有非空来源，覆盖或人工修订差异须与记录一致。记录缺失时只能报告值差异，操作路径与差异正当性标“待人工 / 不可验证”，不作为自动硬失败。</td></tr>
         <tr><td class="t-key">表内新增来源</td><td>按操作记录回查划词 / 整行新增时的实际添加行。</td><td>Key 与来源对应实际添加行，且该行所选原文列包含术语；不强制要求它是首个命中行。操作记录缺失时标“待人工 / 不可验证”，不据最终表反推。</td></tr>
         <tr><td class="t-key">缺失回填 / 表外手工</td><td>按操作记录确认导出前缺失状态，并区分原文是否存在术语。</td><td>有记录时，仅缺失字段按原始工作簿首个命中行回填，已有字段不改；原文不存在的手工术语允许空并进入例外清单。记录缺失时无法从最终 xlsx 反推导出前状态，整项标“待人工 / 不可验证”，不作为自动硬失败。</td></tr>
-        <tr><td class="t-key">回流</td><td>把审定表上传到主工具，仅核对自动识别与手动列选择。</td><td>UI 正确选中「术语原文 / 术语译文」；CLI 明确使用 <span class="mono">--gl-cn-col 2 --gl-en-col 3</span>。</td></tr>
+        <tr><td class="t-key">回流</td><td>把审定表上传到主工具，仅核对自动识别与手动列选择。</td><td>UI 正确选中当前语言对的「术语原文 / 术语译文」；CLI 明确使用 <span class="mono">--gl-source-col 2 --gl-target-col 3</span>。</td></tr>
         <tr><td class="t-key">人工语义</td><td>全查高风险项（空译文、来源缺失、专名）并抽检 <span class="mono">min(总数, max(20, 向上取整(总数×10%)))</span> 条。</td><td>术语边界、分类、译文风格和上下文无严重错误；发现的问题有责任人和修订记录。</td></tr>
       </tbody>
     </table>
@@ -531,10 +534,13 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" -
     <dd>上传只证明 YAML 能被基础解析，不代表字段或业务规则正确。停止全量运行；检查重复键、字段类型、空字符串列表项、未解决占位、few-shot 分类和过滤分类，再用代表性小样复验。UI 的空白 YAML 模板不能绕过这一步。</dd>
 
     <dt>项目目标语不是英文</dt>
-    <dd>当前新译提示固定为中文 → 英文，填写表 Q8 或 Profile 不能切换为日 / 韩等目标语。停止配置与运行，把需求交工程评估程序改造；不得把“已填写目标语”报告成“程序已支持”。</dd>
+    <dd>在「提取术语」页分别选择源语言和目标语言；UI 内置常见本地化语言，CLI 还接受规范化的 BCP 47 风格代码。Q8 或 Profile 不会自动替代页面语言选择。代码可运行不等于语言质量已认证：非默认语言对需补充对应 Profile 规则并由该语言人员完成 LQA。</dd>
+
+    <dt>同行双语为什么仍可能调用 AI 生成译文</dt>
+    <dd>同行目标单元格是整行译文，不是逐术语对照表。系统只沿用能在该单元格中核对的术语译文；模型没有返回术语级对应、返回内容不在目标单元格中，或目标单元格为空时，都会交给 AI 生成。术语表精确命中始终优先。</dd>
 
     <dt>自动识别的列不对</dt>
-    <dd>在「运行」页手动选择原文、Key、官方英文、术语中文和术语英文列；CLI 列号从 0 开始。不要直接开始提取。标注工具也要分别核对 Key / 原文 / 译文列。</dd>
+    <dd>在「提取术语」页手动选择源文本、Key、同行目标译文、术语原文和目标译文列；CLI 列号从 0 开始。同行目标译文列选择“无”即按单语处理。不要直接开始提取。标注工具也要分别核对 Key / 原文 / 译文列。</dd>
 
     <dt>中断后没有从预期位置继续</dt>
     <dd>在「所有断点」查看状态，单位是 chunks，不是 Excel 行。只有原文、术语表、Profile 名与内容、模型、列设置和模式全部相同时才续跑；系统不会完整校验这些不变量。同名 Profile 被改过或任一参数变化时新开一轮。断点通常每若干批写入，最近一批可能重做；成功完成后 UI 会清除断点。</dd>
@@ -543,7 +549,7 @@ python3 cli.py --source "[原文 xlsx 绝对路径]" --profile "[Profile 名]" -
     <dd>确认时间与术语数后恢复，再重新导入原文并核对三列。浏览器草稿只含术语，且受本地存储配额约束；立即另存 <span class="mono">term_project_*.json</span>，后续以该工程文件为正式续作依据。</dd>
 
     <dt>导入术语表提示缺列</dt>
-    <dd>标注工具硬性要求「术语原文」表头；缺失就停止。主工具作为术语表输入则必须同时能指定中文与英文两列。先复制备份，再由负责人修正表头；不要把报错改写成兼容。</dd>
+    <dd>标注工具硬性要求「术语原文」表头；缺失就停止。主工具作为术语表输入则必须同时能指定当前语言对的原文与译文两列。先复制备份，再由负责人修正表头；不要把报错改写成兼容。</dd>
 
     <dt>候选表是“匹配来源”，导出表却是“备注”</dt>
     <dd>这是当前两工具的已验证接口差异，不是文件损坏。候选表可以导入，但“匹配来源”不会写进备注。追溯依赖原始结果 / 候选表；正式交付使用标注工具导出的“备注”结构。</dd>
