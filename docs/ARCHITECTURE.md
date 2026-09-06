@@ -36,7 +36,7 @@ run_pipeline(
     raw_dir: str = "",
     checkpoint_dir: str = "",
     progress_callback: callable = None,
-    opts: PipelineOpts = PipelineOpts(),  # bilingual/no_translate/src_col/src_en_col/key_col/gl_cn_col/gl_en_col/并发
+    opts: PipelineOpts = PipelineOpts(),  # 语言对、源结构、译文策略、通用列映射与并发
 ) -> List[dict]
 ```
 返回术语列表，每项：
@@ -47,8 +47,8 @@ run_pipeline(
   "source_text": "青长老说墨门弟子需恪守门规",
   "source_key": "DLG_001",
   "translation": "Momen",
-  "match_type": "exact | bilingual | llm_translated | no_translate",
-  "note": "（可选）EN列与术语表冲突时记录EN原值",
+  "match_type": "exact | aligned | bilingual | llm_translated | no_translate",
+  "note": "（可选）同行目标列与术语表冲突时记录同行原值",
   "ref_term": "...",
   "ref_trans": "...",
   "ref_sim": 0.92
@@ -87,14 +87,17 @@ extract_terms(
 ```python
 match_and_translate(
     extracted: List[dict],
-    glossary: dict,              # {cn_lower: (cn, en)}
+    glossary: dict,              # {source_lower: (source, target)}
     profile: dict,
     api_key: str,
     base_url: str,
     model: str,
-    similarity: str = "embedding",
     raw_dir: str = "",
     embed_store: EmbedStore = None,
+    bilingual: bool = False,
+    source_language: str = "zh-Hans",
+    target_language: str = "en",
+    translate_missing: bool = True,
 ) -> List[dict]
 ```
 
@@ -185,20 +188,27 @@ translator.translate_with_hints(
 ### `prompt_base.py`
 
 ```python
-build_system_prompt(profile: dict) -> str
+build_system_prompt(
+    profile: dict,
+    source_language: str = "zh-Hans",
+) -> str
 
 build_user_prompt(
     profile: dict,
     text: str,
     include_context: bool = True,
-    bilingual: bool = False,       # 双语文本（ZH: ... | EN: ...）
+    bilingual: bool = False,       # 同行双语文本（如 EN: ... | DE: ...）
     jieba_hints: list = None,      # 术语表命中提示词
     ner_hints: dict = None,        # {"persons": [...], "places": [...]}
+    source_language: str = "zh-Hans",
+    target_language: str = "en",
 ) -> str
 
 build_translation_prompt(
     profile: dict,
     terms_with_ref: list,          # 每项含 _ref_term / _ref_trans / source_text
+    source_language: str = "zh-Hans",
+    target_language: str = "en",
 ) -> tuple[str, str]               # (system_prompt, user_prompt)
 ```
 
@@ -271,8 +281,13 @@ get_token_param_name(model: str) -> str   # "max_tokens" or "max_output_tokens"
 | `extract_examples.include` | list[str] | — | system prompt 中的正例 |
 | `extract_examples.exclude` | list[str] | — | system prompt 中的负例 |
 | `fewshot_examples` | list[dict] | — | `{input, output}` 格式的 few-shot 样本 |
-| `fewshot_examples_bilingual` | list[dict] | — | 双语模式专用 few-shot（output 含 zh_term/eng_term）；双语时优先于 `fewshot_examples` |
+| `fewshot_examples_bilingual` | list[dict] | — | 默认中→英同行双语的兼容 few-shot（output 含 zh_term/eng_term）；其他语言对优先使用下方通用字段 |
 | `translation_rules` | list[str] | — | 翻译风格规则，注入翻译 prompt |
+| `core_principle_by_source_language` | dict[str, str] | — | 非默认源语言的核心提取原则 |
+| `extract_examples_by_source_language` | dict[str, dict] | — | 按源语言配置提取正反例 |
+| `extraction_notes_by_source_language` | dict[str, list[str]] | — | 按源语言配置补充提取规则 |
+| `fewshot_examples_by_language_pair` | dict[str, list[dict]] | — | 按 `en->de` 等语言对配置 few-shot |
+| `translation_rules_by_language_pair` | dict[str, list[str]] | — | 按语言对配置翻译规则 |
 | `rule_extractors.surname_names` | dict | — | 基于姓氏的规则抽取（燕云专用） |
 | `core_principle` | str | — | 追加到 system prompt 开头的核心原则 |
 
@@ -281,7 +296,7 @@ get_token_param_name(model: str) -> str   # "max_tokens" or "max_output_tokens"
 ## Data Flow
 
 ```
-source.xlsx (A列原文)
+source.xlsx（源语言列；可选同行目标语言列）
   │
   ├─ load_excel → List[str] (去重、去变量占位符)
   ├─ _chunk_texts → List[chunk]  (每块 ~1200 字)
@@ -296,10 +311,11 @@ source.xlsx (A列原文)
   ├─ filter_derived_terms (去除称谓派生变体)
   ├─ profile.filterable_categories 过滤（非术语库中的通用分类）
   │
-  ├─ 译文权威序（2026-06-12 裁决）:
-  │     ① glossary 精确命中 → exact（与双语EN列冲突时译文取库、EN原值写 note）
-  │     ② 双语EN列照抄 → bilingual
-  │     ③ EmbedStore top-1 + LLM 翻译 → llm_translated（注入 translation_rules）
+  ├─ 统一译文解析链:
+  │     ① glossary 精确命中 → exact（与同行目标列冲突时取术语表、同行原值写 note）
+  │     ② 能在同行目标单元格中核对的术语译文 → aligned（默认中→英兼容值为 bilingual）
+  │     ③ translate_missing=True：EmbedStore top-1 + LLM 翻译 → llm_translated
+  │        translate_missing=False：无法可靠对应的项目留空 → no_translate
   │
   └─ save_outputs → results.xlsx + 候选术语_模板.xlsx（8列，审核状态=未审核，note→备注）
 ```
@@ -319,9 +335,15 @@ python cli.py \
   --model gemini-3.1-pro-preview \
   --output output/run_20260520
 
-# 双语模式（原文含中英两列，英文照抄不重译）
+# 英语→德语同行双语；按行号对齐，目标列优先于 AI 补译
 python cli.py --source 双语原文.xlsx --glossary 术语表.xlsx \
-  --profile xiuxiu --bilingual --src-col 0 --src-en-col 1 --api-key sk-...
+  --source-lang en --target-lang de --profile xiuxiu \
+  --aligned-target --src-col 0 --src-target-col 1 --api-key sk-...
+
+# 不调用 AI 翻译；仍沿用术语表精确译文及同行目标列，其余留空
+python cli.py --source 双语原文.xlsx --glossary 术语表.xlsx \
+  --source-lang en --target-lang de --aligned-target \
+  --src-col 0 --src-target-col 1 --no-translate --api-key sk-...
 
 # 评估（提取 + P/R/F1 对比人工术语表）
 python eval.py \

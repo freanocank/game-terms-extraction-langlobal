@@ -204,6 +204,26 @@ with tempfile.TemporaryDirectory() as tmp:
                     key_col=0,
                 ),
             )
+        exact_glossary_path = tmp_path / "exact_de.xlsx"
+        pd.DataFrame({
+            "English term": ["Training Afternoon"],
+            "German translation": ["Freigegebener Glossarwert"],
+        }).to_excel(exact_glossary_path, index=False)
+        pipeline_results["de_existing_glossary"] = core_main.run_pipeline(
+            str(source_path),
+            str(exact_glossary_path),
+            "yanyun",
+            output_dir=str(tmp_path / "output_de_existing_glossary"),
+            opts=PipelineOpts(
+                source_language="en",
+                target_language="de",
+                bilingual=True,
+                no_translate=True,
+                src_col=2,
+                src_target_col=3,
+                key_col=0,
+            ),
+        )
     finally:
         core_main.extract_terms = real_extract_terms
 
@@ -216,6 +236,10 @@ check("shared pipeline runs EN→DE and EN→FR with isolated language metadata"
     and pipeline_results["de"][0]["source_key"] == "101"
     and pipeline_results["fr"][0]["source_key"] == "101"
 ), pipeline_results)
+check("existing-only pipeline still prefers an exact glossary translation", (
+    pipeline_results["de_existing_glossary"][0]["translation"] == "Freigegebener Glossarwert"
+    and pipeline_results["de_existing_glossary"][0]["match_type"] == "exact"
+), pipeline_results["de_existing_glossary"])
 
 
 raw_votes = [[{
@@ -263,6 +287,57 @@ check("aligned copy preserves the target cell's original casing", (
     _aligned_target_value(case_variant, True, "de") == "Trainingsnachmittag"
 ))
 
+empty_target_echo = {
+    "term": "青长老",
+    "target_term": "青长老",
+    "source_text": "ZH: 青长老说话 | EN:",
+}
+check("empty aligned target rejects a model echo of the source term", (
+    _aligned_target_value(empty_target_echo, True, "en") == ""
+    and "译文为空" in empty_target_echo.get("note", "")
+), empty_target_echo)
+
+
+class EchoGuardTranslator:
+    def __init__(self, **kwargs):
+        pass
+
+    def translate_batches(self, prompts):
+        return {"青长老": "Elder Qing"}
+
+
+real_translator = core_main.TermTranslator
+core_main.TermTranslator = EchoGuardTranslator
+try:
+    echo_fallback = match_and_translate(
+        [dict(empty_target_echo)], {}, PROFILE, "", "", "unused",
+        bilingual=True, source_language="zh-Hans", target_language="en",
+    )
+finally:
+    core_main.TermTranslator = real_translator
+check("empty aligned target falls back to translation instead of echoing source", (
+    echo_fallback[0]["translation"] == "Elder Qing"
+    and echo_fallback[0]["match_type"] == "llm_translated"
+), echo_fallback)
+
+echo_existing_only = match_and_translate(
+    [dict(empty_target_echo)], {}, PROFILE, "", "", "unused",
+    bilingual=True, source_language="zh-Hans", target_language="en",
+    translate_missing=False,
+)
+check("empty aligned target stays blank in existing-only mode", (
+    echo_existing_only[0]["translation"] == ""
+    and echo_existing_only[0]["match_type"] == "no_translate"
+), echo_existing_only)
+
+empty_target_whitespace = {
+    "target_term": "青长老",
+    "source_text": "ZH: 青长老说话| EN:   ",
+}
+check("whitespace-only aligned target is treated as empty", (
+    _aligned_target_value(empty_target_whitespace, True, "en") == ""
+), empty_target_whitespace)
+
 invalid_aligned = {
     "target_term": "Invented German",
     "source_text": "EN: Training Afternoon | DE: Trainingsnachmittag",
@@ -271,6 +346,12 @@ check("aligned output not present in the target segment is rejected", (
     _aligned_target_value(invalid_aligned, True, "de") == ""
     and "未命中" in invalid_aligned.get("note", "")
 ), invalid_aligned)
+
+unsourced_aligned = {"target_term": "Invented German"}
+check("aligned output without a source snapshot is rejected", (
+    _aligned_target_value(unsourced_aligned, True, "de") == ""
+    and "无法核对" in unsourced_aligned.get("note", "")
+), unsourced_aligned)
 
 source_only_match = [{"term": "Trainingsnachmittag"}]
 _batch_match_context(
@@ -284,6 +365,103 @@ check("a term found only in the target segment is not attributed to the source",
     source_only_match[0]["source_text"] == ""
     and source_only_match[0]["source_key"] == ""
 ), source_only_match)
+
+default_pair_target_only = [{"term": "EnglishOnlyTerm"}]
+_batch_match_context(
+    default_pair_target_only,
+    ["ZH-HANS: 中文句子 | EN: EnglishOnlyTerm"],
+    ["CN001"],
+    "zh-Hans",
+    "en",
+)
+check("default ZH-HANS→EN matching also ignores the target segment", (
+    default_pair_target_only[0]["source_text"] == ""
+    and default_pair_target_only[0]["source_key"] == ""
+), default_pair_target_only)
+
+
+def mode_terms(bilingual):
+    terms = [
+        {"term": "Glossary Hit", "category": "UI系统"},
+        {"term": "Aligned Only", "category": "UI系统"},
+        {"term": "Missing Term", "category": "UI系统"},
+    ]
+    if bilingual:
+        targets = ["Workbook Override", "Ausgerichtet", ""]
+        for term, target in zip(terms, targets):
+            term["target_term"] = target
+            term["source_text"] = f"EN: {term['term']} | DE: {target}"
+    return terms
+
+
+MODE_GLOSSARY = {"glossary hit": ("Glossary Hit", "Glossarwert")}
+
+
+class FakeTermTranslator:
+    def __init__(self, **kwargs):
+        pass
+
+    def translate_batches(self, prompts):
+        return {
+            "Aligned Only": "KI ausgerichtet",
+            "Missing Term": "KI fehlend",
+        }
+
+
+real_translator = core_main.TermTranslator
+core_main.TermTranslator = FakeTermTranslator
+try:
+    mono_auto = match_and_translate(
+        mode_terms(False), MODE_GLOSSARY, PROFILE, "", "", "unused",
+        source_language="en", target_language="de",
+    )
+    bilingual_auto = match_and_translate(
+        mode_terms(True), MODE_GLOSSARY, PROFILE, "", "", "unused",
+        bilingual=True, source_language="en", target_language="de",
+    )
+finally:
+    core_main.TermTranslator = real_translator
+
+mono_existing_only = match_and_translate(
+    mode_terms(False), MODE_GLOSSARY, PROFILE, "", "", "unused",
+    source_language="en", target_language="de", translate_missing=False,
+)
+bilingual_existing_only = match_and_translate(
+    mode_terms(True), MODE_GLOSSARY, PROFILE, "", "", "unused",
+    bilingual=True, source_language="en", target_language="de", translate_missing=False,
+)
+
+mode_results = {
+    "mono_auto": {item["term"]: item for item in mono_auto},
+    "bilingual_auto": {item["term"]: item for item in bilingual_auto},
+    "mono_existing_only": {item["term"]: item for item in mono_existing_only},
+    "bilingual_existing_only": {item["term"]: item for item in bilingual_existing_only},
+}
+check("single-language + auto uses glossary then AI", (
+    mode_results["mono_auto"]["Glossary Hit"]["match_type"] == "exact"
+    and mode_results["mono_auto"]["Glossary Hit"]["translation"] == "Glossarwert"
+    and mode_results["mono_auto"]["Aligned Only"]["match_type"] == "llm_translated"
+    and mode_results["mono_auto"]["Missing Term"]["translation"] == "KI fehlend"
+), mode_results["mono_auto"])
+check("aligned bilingual + auto uses glossary, aligned row, then AI", (
+    mode_results["bilingual_auto"]["Glossary Hit"]["match_type"] == "exact"
+    and mode_results["bilingual_auto"]["Aligned Only"]["match_type"] == "aligned"
+    and mode_results["bilingual_auto"]["Aligned Only"]["translation"] == "Ausgerichtet"
+    and mode_results["bilingual_auto"]["Missing Term"]["match_type"] == "llm_translated"
+), mode_results["bilingual_auto"])
+check("single-language + existing-only keeps glossary hits and leaves the rest blank", (
+    mode_results["mono_existing_only"]["Glossary Hit"]["match_type"] == "exact"
+    and mode_results["mono_existing_only"]["Aligned Only"]["match_type"] == "no_translate"
+    and mode_results["mono_existing_only"]["Aligned Only"]["translation"] == ""
+    and mode_results["mono_existing_only"]["Missing Term"]["translation"] == ""
+), mode_results["mono_existing_only"])
+check("aligned bilingual + existing-only keeps glossary and aligned rows, leaving gaps blank", (
+    mode_results["bilingual_existing_only"]["Glossary Hit"]["match_type"] == "exact"
+    and mode_results["bilingual_existing_only"]["Aligned Only"]["match_type"] == "aligned"
+    and mode_results["bilingual_existing_only"]["Aligned Only"]["translation"] == "Ausgerichtet"
+    and mode_results["bilingual_existing_only"]["Missing Term"]["match_type"] == "no_translate"
+    and mode_results["bilingual_existing_only"]["Missing Term"]["translation"] == ""
+), mode_results["bilingual_existing_only"])
 
 
 empty_df = pd.read_excel(BytesIO(empty_glossary_bytes("en", "fr")))

@@ -299,13 +299,15 @@ def load_glossary(path: str, cn_col: int = 0, en_col: int = 1) -> Tuple[dict, se
 
 
 def _source_match_text(text: str, source_language: str, target_language: str) -> str:
-    if (source_language, target_language) == (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
+    target_marker = re.compile(
+        rf"\s*\|\s*{re.escape(language_tag(target_language))}\s*:\s*",
+        re.IGNORECASE,
+    )
+    marker_match = target_marker.search(text)
+    if not marker_match:
         return text
-    source_prefix = f"{language_tag(source_language)}: "
-    target_marker = f" | {language_tag(target_language)}: "
-    if text.startswith(source_prefix) and target_marker in text:
-        return text[len(source_prefix):].split(target_marker, 1)[0]
-    return text
+    source_text = text[:marker_match.start()].strip()
+    return re.sub(r"^[A-Za-z][A-Za-z0-9-]*\s*:\s*", "", source_text, count=1)
 
 
 def _batch_match_context(
@@ -724,21 +726,41 @@ def _aligned_target_value(
         return ""
     value = str(term.get("target_term") or term.get("eng_term") or "").strip()
     source_text = str(term.get("source_text") or "").strip()
-    marker = f" | {language_tag(target_language)}: "
-    if value and source_text and marker in source_text:
-        target_text = source_text.split(marker, 1)[1]
-        if value in target_text:
-            return value
-        exact_case = re.search(re.escape(value), target_text, flags=re.IGNORECASE)
-        if exact_case:
-            return exact_case.group(0)
-        else:
-            term["note"] = "; ".join(filter(None, [
-                term.get("note", ""),
-                f"同行{language_name(target_language)}译文未命中，已改为待生成",
-            ]))
-            return ""
-    return value
+    # `_batch_match_context` trims the full source string, so an empty target
+    # segment is normalized to `... | EN:` (without the trailing space).  Use
+    # a whitespace-tolerant marker to distinguish an empty aligned field from
+    # a missing source snapshot; never treat a model-echoed source term as an
+    # aligned translation when the target segment is empty.
+    marker_re = re.compile(
+        rf"\s*\|\s*{re.escape(language_tag(target_language))}\s*:\s*",
+        re.IGNORECASE,
+    )
+    marker_match = marker_re.search(source_text) if source_text else None
+    if not value:
+        return ""
+    if not marker_match:
+        term["note"] = "; ".join(filter(None, [
+            term.get("note", ""),
+            f"同行{language_name(target_language)}术语译文无法核对，未沿用",
+        ]))
+        return ""
+    target_text = source_text[marker_match.end():]
+    if not target_text.strip():
+        term["note"] = "; ".join(filter(None, [
+            term.get("note", ""),
+            f"同行{language_name(target_language)}术语译文为空，未沿用",
+        ]))
+        return ""
+    if value in target_text:
+        return value
+    exact_case = re.search(re.escape(value), target_text, flags=re.IGNORECASE)
+    if exact_case:
+        return exact_case.group(0)
+    term["note"] = "; ".join(filter(None, [
+        term.get("note", ""),
+        f"同行{language_name(target_language)}术语译文未命中目标单元格，未沿用",
+    ]))
+    return ""
 
 
 def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
@@ -746,7 +768,8 @@ def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
                         raw_dir: str = "", embed_store: EmbedStore = None,
                         bilingual: bool = False,
                         source_language: str = DEFAULT_SOURCE_LANGUAGE,
-                        target_language: str = DEFAULT_TARGET_LANGUAGE) -> List[dict]:
+                        target_language: str = DEFAULT_TARGET_LANGUAGE,
+                        translate_missing: bool = True) -> List[dict]:
     source_language, target_language = validate_language_pair(source_language, target_language)
     legacy_pair = (
         source_language == DEFAULT_SOURCE_LANGUAGE
@@ -767,22 +790,34 @@ def match_and_translate(extracted: List[dict], glossary: dict, profile: dict,
             d = {**t, "translation": hit[1], "match_type": "exact"}
             if aligned and aligned != hit[1]:
                 if legacy_pair:
-                    d["note"] = f"EN列与术语表不一致，EN列原文：{aligned}"
+                    conflict_note = f"EN列与术语表不一致，EN列原文：{aligned}"
                 else:
-                    d["note"] = (
+                    conflict_note = (
                         f"{language_name(target_language)}列与术语表不一致，"
                         f"同行原文：{aligned}"
                     )
+                d["note"] = "; ".join(filter(None, [t.get("note", ""), conflict_note]))
             exact_matched.append(d)
         elif aligned:
             bilingual_copied.append({**t, "translation": aligned, "match_type": aligned_match_type})
         else:
             need_translate.append(t)
 
-    logger.info(f"Exact: {len(exact_matched)} | Bilingual copy: {len(bilingual_copied)} | Need LLM translate: {len(need_translate)}")
+    logger.info(
+        f"Exact: {len(exact_matched)} | Aligned copy: {len(bilingual_copied)} | "
+        f"Unresolved: {len(need_translate)}"
+    )
 
     if not need_translate:
         return [_clean(d) for d in exact_matched + bilingual_copied]
+
+    if not translate_missing:
+        untranslated = [
+            {**t, "translation": "", "match_type": "no_translate"}
+            for t in need_translate
+        ]
+        logger.info(f"AI translation disabled: {len(untranslated)} unresolved terms left blank")
+        return [_clean(d) for d in exact_matched + bilingual_copied + untranslated]
 
     logger.info("Computing top-1 reference via embedding...")
     query_terms = [t["term"] for t in need_translate]
@@ -935,39 +970,33 @@ def run_pipeline(source_path: str, glossary_path: str, profile_name: str = DEFAU
             logger.info(f"flagged {len(flagged)} unsourced term(s) for review (not dropped): "
                         + "、".join(t["term"] for t in flagged))
 
-    if opts.no_translate:
-        def _clean_no_translate(t):
-            aligned = _aligned_target_value(t, opts.bilingual, target_language)
-            t.pop("target_term", None)
-            t.pop("eng_term", None)
-            match_type = (
-                "bilingual"
-                if aligned and source_language == DEFAULT_SOURCE_LANGUAGE and target_language == DEFAULT_TARGET_LANGUAGE
-                else "aligned" if aligned else "no_translate"
-            )
-            return {**t, "translation": aligned, "match_type": match_type}
-        results = [_clean_no_translate(t) for t in extracted]
-        copied = sum(1 for r in results if r["match_type"] in {"bilingual", "aligned"})
-        logger.info(f"No-translate mode: {len(results)} terms, {copied} with aligned target copied")
-    else:
-        logger.info("Matching + translating via embedding...")
-        if progress_callback:
-            progress_callback("translating", 0, 1, f"Exact: {sum(1 for t in extracted if t['term'].lower() in glossary)} matched, translating rest...")
-        results = match_and_translate(
-            extracted,
-            glossary,
-            profile,
-            api_key,
-            base_url,
-            model,
-            raw_dir=raw_dir,
-            embed_store=embed_store,
-            bilingual=opts.bilingual,
-            source_language=source_language,
-            target_language=target_language,
-        )
-        if progress_callback:
-            progress_callback("translating", 1, 1, f"{len(results)} terms translated")
+    logger.info("Resolving translations from glossary, aligned rows, and optional AI fallback...")
+    if progress_callback:
+        action = "整理现有译文" if opts.no_translate else "整理现有译文并生成其余译文"
+        progress_callback("translating", 0, 1, action + "…")
+    results = match_and_translate(
+        extracted,
+        glossary,
+        profile,
+        api_key,
+        base_url,
+        model,
+        raw_dir=raw_dir,
+        embed_store=embed_store,
+        bilingual=opts.bilingual,
+        source_language=source_language,
+        target_language=target_language,
+        translate_missing=not opts.no_translate,
+    )
+    if progress_callback:
+        translated = sum(1 for r in results if r["match_type"] == "llm_translated")
+        blank = sum(1 for r in results if r["match_type"] == "no_translate")
+        detail = f"{len(results)} 条术语已整理"
+        if translated:
+            detail += f"，AI 生成 {translated} 条译文"
+        if blank:
+            detail += f"，{blank} 条译文留空"
+        progress_callback("translating", 1, 1, detail)
 
     for result in results:
         result.setdefault("source_language", source_language)

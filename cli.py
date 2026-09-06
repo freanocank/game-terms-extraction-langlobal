@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--src-target-col", type=_column_index, default=None,
                         help="同行目标文本列索引；优先于兼容参数 --src-en-col")
     parser.add_argument("--no-translate", action="store_true",
-                        help="跳过 LLM 翻译，仅提取术语（同行目标模式仍照抄目标列）")
+                        help="不调用 LLM 翻译；仍沿用术语表精确译文与同行目标列，其余留空")
     parser.add_argument("--no-flag-unsourced", action="store_true",
                         help="不给原文未命中的词在结果 note 字段打⚠待核标记（默认标记，不删除）")
     parser.add_argument("--concurrent", type=_positive_int, default=None, help="AI 提取并发数")

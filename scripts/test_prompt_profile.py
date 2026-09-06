@@ -45,8 +45,18 @@ check("bilingual falls back to mono few-shot when variant absent",
 # glossary > bilingual copy, conflict noted
 GLOSSARY = {"墨门": ("墨门", "Momen")}
 extracted = [
-    {"term": "墨门", "eng_term": "Mo Sect", "category": "门派"},
-    {"term": "八荒剑诀", "eng_term": "Eight Wilds Sword Art", "category": "技能"},
+    {
+        "term": "墨门",
+        "eng_term": "Mo Sect",
+        "category": "门派",
+        "source_text": "ZH-HANS: 墨门 | EN: Mo Sect",
+    },
+    {
+        "term": "八荒剑诀",
+        "eng_term": "Eight Wilds Sword Art",
+        "category": "技能",
+        "source_text": "ZH-HANS: 八荒剑诀 | EN: Eight Wilds Sword Art",
+    },
 ]
 out = match_and_translate([dict(t) for t in extracted], GLOSSARY, PROFILE, "", "", "m", bilingual=True)
 by = {d["term"]: d for d in out}
@@ -54,7 +64,12 @@ check("glossary wins over EN column", by["墨门"]["translation"] == "Momen" and
 check("conflict recorded in note", "Mo Sect" in by["墨门"].get("note", ""))
 check("no glossary hit -> EN copied", by["八荒剑诀"]["translation"] == "Eight Wilds Sword Art" and by["八荒剑诀"]["match_type"] == "bilingual")
 check("eng_term stripped from results", all("eng_term" not in d for d in out))
-out2 = match_and_translate([{"term": "墨门", "eng_term": "Momen", "category": "门派"}], GLOSSARY, PROFILE, "", "", "m", bilingual=True)
+out2 = match_and_translate([{
+    "term": "墨门",
+    "eng_term": "Momen",
+    "category": "门派",
+    "source_text": "ZH-HANS: 墨门 | EN: Momen",
+}], GLOSSARY, PROFILE, "", "", "m", bilingual=True)
 check("EN agreeing with glossary -> no note", "note" not in out2[0])
 out3 = match_and_translate([{"term": "墨门", "category": "门派"}], GLOSSARY, PROFILE, "", "", "m", bilingual=False)
 check("mono mode exact match unchanged", out3[0]["translation"] == "Momen" and "note" not in out3[0])
