@@ -10,6 +10,8 @@ English | [中文](README_ZH.md)
 
  Game terminology extraction pipeline that uses an LLM to extract terms for a configurable source/target language pair and produce deliverable bilingual glossaries. The legacy default remains Simplified Chinese → English.
 
+The 2026-09-07 snapshot pauses development with known extraction-quality, annotation-contract and task-management gaps. Read the [distribution notes](docs/RELEASE_NOTES_20260907.md) before use; candidate output is not an approved termbase.
+
 ## Key Capabilities
 
 - Identifies term candidates from game text.

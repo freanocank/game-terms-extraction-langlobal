@@ -1,5 +1,7 @@
 # Architecture
 
+Historical architecture reference: some examples below predate the current implementation. For the 2026-09-07 snapshot, use `reliability_fix_20260907.md` and `RELEASE_NOTES_20260907.md` for current behavior and known limitations.
+
 ## Module Map
 
 ```

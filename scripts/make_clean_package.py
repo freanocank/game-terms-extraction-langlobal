@@ -48,6 +48,8 @@ FILES = [
     "docs/PM使用指南_游戏术语提取与标注.html",
     "docs/ARCHITECTURE.md",
     "docs/CHANGELOG.md",
+    "docs/RELEASE_NOTES_20260907.md",
+    "docs/reliability_fix_20260907.md",
     "docs/Profile撰写指南.html",
 ]
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026-09-07] — Reliability snapshot
+
+### Fixed
+- Preserve source-row identity, keys, spans and repeated occurrences; prevent duplicate votes and cross-row candidate binding.
+- Separate valid empty output from failed requests; retain compatible checkpoints and successful responses for resume.
+- Retry missing translations without silently completing partial output; share extraction concurrency across voting rounds.
+- Validate connection-test response structures, preserve contextual manual column choices, and redact runtime credentials.
+
+### Added
+- Reusable source, voting, NER, response-validation and run-manifest modules; offline scoring/replay and reliability regression coverage.
+- Native API test evidence, development closeout record and next-development backlog in the source repository.
+
+### Distribution status
+- Development is paused. This snapshot retains known extraction-quality, annotation-contract and task-management gaps; no new product fixes are included in the closeout.
+- See `RELEASE_NOTES_20260907.md` before using the clean source distribution. User data, credentials, caches and API logs are excluded.
+
 ## [Unreleased] — 2026-04-13
 
 ### Added
