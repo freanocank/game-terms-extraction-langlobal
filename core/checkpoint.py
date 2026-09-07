@@ -1,7 +1,8 @@
-import json, hashlib, shutil, time, tempfile, os
+import json, hashlib, shutil, time
 from pathlib import Path
 
 from core.languages import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE, validate_language_pair
+from core.request_cache import write_json
 
 
 def checkpoint_dir_name(
@@ -29,15 +30,10 @@ def load(checkpoint_dir: str) -> dict:
     return {"chunk_idx": 0, "terms": [], "total_chunks": 0}
 
 
-def save(checkpoint_dir: str, chunk_idx: int, terms: list, total_chunks: int):
-    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
-    target = Path(checkpoint_dir) / "checkpoint.json"
-    fd, tmp = tempfile.mkstemp(dir=checkpoint_dir, suffix=".tmp")
-    try:
-        os.write(fd, json.dumps({"chunk_idx": chunk_idx, "terms": terms, "total_chunks": total_chunks}, ensure_ascii=False).encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.replace(tmp, target)
+def save(checkpoint_dir: str, chunk_idx: int, terms: list, total_chunks: int, **state):
+    write_json(Path(checkpoint_dir) / "checkpoint.json", {
+        **state, "chunk_idx": chunk_idx, "terms": terms, "total_chunks": total_chunks,
+    })
 
 
 def clear(checkpoint_dir: str):
@@ -47,10 +43,7 @@ def clear(checkpoint_dir: str):
 
 
 def save_meta(checkpoint_dir: str, data: dict):
-    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
-    (Path(checkpoint_dir) / "run_meta.json").write_text(
-        json.dumps(data, ensure_ascii=False), encoding="utf-8"
-    )
+    write_json(Path(checkpoint_dir) / "run_meta.json", data)
 
 
 def load_meta(checkpoint_dir: str) -> dict:
@@ -66,15 +59,15 @@ def load_meta(checkpoint_dir: str) -> dict:
 def save_inputs(checkpoint_dir: str, source_path: str, glossary_path: str) -> tuple:
     """Copy source and glossary into the checkpoint dir for resumption.
 
-    Source is copied only on first run (preserves original texts for context
-    matching). Glossary is always updated to reflect the latest version.
+    Called only after configuration validation. Source and glossary snapshots
+    reflect the validated inputs; never copy a snapshot onto itself.
     Returns (src_path, gl_path) pointing to the checkpoint copies.
     """
     d = Path(checkpoint_dir)
     d.mkdir(parents=True, exist_ok=True)
     src_dst = d / "source.xlsx"
     gl_dst = d / "glossary.xlsx"
-    if not src_dst.exists():
+    if src_dst.resolve() != Path(source_path).resolve():
         shutil.copy2(source_path, src_dst)
     if gl_dst.resolve() != Path(glossary_path).resolve():
         shutil.copy2(glossary_path, gl_dst)

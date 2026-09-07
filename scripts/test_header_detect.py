@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify configurable LLM-based header detection.
 
-Live cases run only when DETECT_API_KEY or OPENAI_API_KEY is available. The
+Live cases require --live and DETECT_API_KEY or OPENAI_API_KEY. The
 fallback case is always offline and uses an isolated cache.
 """
 
@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -66,7 +67,7 @@ api_key = os.getenv("DETECT_API_KEY") or os.getenv("OPENAI_API_KEY", "")
 base_url = os.getenv("DETECT_API_BASE") or os.getenv("DETECT_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE_URL")
 model = os.getenv("DETECT_MODEL") or os.getenv("OPENAI_MODEL")
 
-if api_key:
+if "--live" in sys.argv and api_key:
     hd.CACHE_FILE = Path(tempfile.mkdtemp()) / "live_header_cache.json"
     common = {"api_key": api_key, "base_url": base_url, "model": model}
     r = detect_glossary_columns(TEMPLATE_8COL, **common)
@@ -86,15 +87,18 @@ if api_key:
     check("bilingual source -> text=1, key=0, en=2", r,
           {"text_col": 1, "key_col": 0, "en_col": 2, "method": "ai"})
 else:
-    print("SKIP | live header detection (no DETECT_API_KEY/OPENAI_API_KEY)")
+    print("SKIP | live header detection (requires --live and configured API key)")
 
 hd.CACHE_FILE = Path(tempfile.mkdtemp()) / "offline_header_cache.json"
-r = detect_glossary_columns(
-    TEMPLATE_8COL,
-    api_key="offline-test-key",
-    base_url="http://127.0.0.1:9/v1",
-    model="offline-test-model",
-)
+class APIConnectionError(Exception):
+    pass
+
+
+with patch.object(hd, "_ai_detect", side_effect=APIConnectionError("offline fixture")):
+    r = detect_glossary_columns(
+        TEMPLATE_8COL, api_key="offline-test-key",
+        base_url="https://offline.example.invalid/v1", model="offline-test-model",
+    )
 check("unreachable API -> default 0/1 fallback", r, {"cn_col": 0, "en_col": 1, "method": "default"})
 check("unreachable API exposes a stable reason", r, {
     "fallback_code": "connection_failed",

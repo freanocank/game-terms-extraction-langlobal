@@ -30,6 +30,10 @@ The UI automatically detects the source, Key, and optional aligned target column
 
  Terminology output should be reviewed by localization staff before delivery.
 
+Failed extraction requests and missing translations no longer count as completed work. Checkpoints and successful responses are retained for retry. Resume validates source data, column mappings, language pair, profile content, model, and extraction rules; unverifiable legacy checkpoints are preserved but require a new run directory. Duplicate entries and overlapping chunks count at most once per voting round for the same source row. The native 8-column annotation export is unchanged.
+
+Offline checks: `python scripts/run_offline_tests.py`. Score existing results without credentials using `python scripts/eval.py --results output/run/results.xlsx --manual reviewed_gold.xlsx`. Use `--replay output/run/raw_data/extraction --source source.xlsx` with the original column mappings to replay complete responses from this version; this does not rerun NER or translation. Only `--live --source source.xlsx` invokes the native API pipeline. A complete reviewed gold set is required for meaningful precision and recall. See the [repair and validation notes](docs/reliability_fix_20260907.md).
+
 ## Command and Configuration Reference
 
 The following code blocks keep commands, paths, filenames, and configuration keys literal; explanatory comments are translated for the English README.

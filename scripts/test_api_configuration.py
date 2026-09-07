@@ -141,7 +141,7 @@ connection_calls = []
 
 
 class FakeConnectionClient:
-    def __init__(self, api_key, base_url, timeout):
+    def __init__(self, api_key, base_url, timeout, max_retries=0):
         connection_calls.append(("client", api_key, base_url))
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat))
         self.embeddings = SimpleNamespace(create=self._embedding)
@@ -149,7 +149,15 @@ class FakeConnectionClient:
     @staticmethod
     def _chat(**kwargs):
         connection_calls.append(("chat", kwargs["model"]))
-        return SimpleNamespace(choices=[])
+        content = {
+            "main-model": '{"terms": []}',
+            "ner-model": '{"persons": [], "places": []}',
+            "detect-model": '{"text_col": 1, "key_col": 0, "en_col": 2}',
+        }[kwargs["model"]]
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason="stop")])
+
+    def close(self):
+        pass
 
     @staticmethod
     def _embedding(**kwargs):
@@ -198,9 +206,12 @@ with tempfile.TemporaryDirectory() as tmp:
             )])
 
     class FakeDetectionOpenAI:
-        def __init__(self, api_key, base_url, timeout):
+        def __init__(self, api_key, base_url, timeout, max_retries=0):
             detection_calls.append({"api_key": api_key, "base_url": base_url, "timeout": timeout})
             self.chat = SimpleNamespace(completions=FakeDetectionCompletions())
+
+        def close(self):
+            pass
 
     try:
         header_detect.CACHE_FILE = Path(tmp) / "header_cache.json"
@@ -227,12 +238,12 @@ with tempfile.TemporaryDirectory() as tmp:
     original_votes = core_main._run_batch_votes
     ner_calls = []
 
-    def fake_ner(batch, api_key, base_url, model):
+    def fake_ner(batch, api_key, base_url, model, **kwargs):
         ner_calls.append((api_key, base_url, model))
         return [], []
 
     vote = {"custom_id": "fake", "extracted_terms": {"terms": [
-        {"term": "墨门", "category": "门派势力"},
+        {"term": "墨门", "category": "门派势力", "row_id": "row-2"},
     ]}}
     try:
         core_main._ner_scan = fake_ner

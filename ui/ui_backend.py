@@ -536,18 +536,36 @@ def test_api_connection(cfg: RunConfig, service: str = "main") -> tuple:
         return False, f"{label}缺少模型 ID"
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=settings.api_key, base_url=settings.api_base, timeout=30)
-        if service == "embedding":
-            response = client.embeddings.create(model=settings.model, input=["连接测试"])
-            if not getattr(response, "data", None):
-                raise RuntimeError("服务未返回向量数据")
-        else:
-            client.chat.completions.create(
-                model=settings.model,
-                messages=[{"role": "user", "content": "只回复 OK"}],
-                temperature=0,
-                max_tokens=8,
-            )
+        from core.responses import chat_content, json_object, parse_entities, validate_terms
+        from core.header_detect import _source_mapping
+        import math
+        client = OpenAI(api_key=settings.api_key, base_url=settings.api_base, timeout=30, max_retries=0)
+        try:
+            if service == "embedding":
+                response = client.embeddings.create(model=settings.model, input=["连接测试"])
+                data = getattr(response, "data", None)
+                vector = getattr(data[0], "embedding", None) if data else None
+                if not isinstance(vector, list) or not vector or any(type(x) not in (int, float) or not math.isfinite(x) for x in vector):
+                    raise RuntimeError("服务未返回有效向量数据")
+            else:
+                samples = {
+                    "main": '分析无术语文本，严格返回 JSON：{"terms": []}',
+                    "ner": '分析无命名实体文本，严格返回 JSON：{"persons": [], "places": []}',
+                    "detect": '列为 [0] ID, [1] 中文, [2] EN。严格返回 JSON：{"text_col": 1, "key_col": 0, "en_col": 2}',
+                }
+                response = client.chat.completions.create(
+                    model=settings.model, messages=[{"role": "user", "content": samples[service]}],
+                    temperature=0, max_tokens=256,
+                )
+                content = chat_content(response)
+                if service == "main":
+                    validate_terms(json_object(content))
+                elif service == "ner":
+                    parse_entities(content)
+                else:
+                    _source_mapping(json_object(content), 3)
+        finally:
+            client.close()
         return True, f"{label}连接成功（{settings.model}）"
     except Exception as e:
         message = str(e)
@@ -692,6 +710,7 @@ class ProcessingTask:
         except _InterruptedError:
             self.error = "Cancelled by user"
         except Exception as e:
+            self.stage = "incomplete"
             self.error = f"{type(e).__name__}: {e}"
             logging.getLogger("pipeline").exception("Pipeline failed")
         finally:

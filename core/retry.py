@@ -7,6 +7,16 @@ T = TypeVar("T")
 _log = logging.getLogger("retry")
 
 
+def is_retryable(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status in (408, 409, 429) or status >= 500
+    return isinstance(exc, (ConnectionError, TimeoutError)) or type(exc).__name__ in {
+        "APIConnectionError", "APITimeoutError", "ConnectError", "ReadError",
+        "ConnectTimeout", "ReadTimeout", "PoolTimeout", "WriteTimeout",
+    }
+
+
 async def retry_async(
     fn: Callable[[], Awaitable[T]],
     *,
@@ -26,9 +36,9 @@ async def retry_async(
         try:
             return await fn()
         except Exception as exc:
-            if attempt >= max_attempts:
+            if attempt >= max_attempts or not is_retryable(exc):
                 raise
             jitter = random.uniform(0, delay * jitter_frac)
-            _log.warning(f"{tag} retry#{attempt} {type(exc).__name__}: {str(exc)[:120]}, retry in {delay + jitter:.0f}s")
+            _log.warning(f"{tag} retry#{attempt} {type(exc).__name__}, retry in {delay + jitter:.0f}s")
             await asyncio.sleep(delay + jitter)
             delay = min(delay * delay_multiplier, delay_cap)

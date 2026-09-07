@@ -22,7 +22,8 @@ def extract_json(raw: str) -> Any:
 
     for src in candidates:
         try:
-            return json.loads(src)
+            parsed = json.loads(src)
+            return json.loads(parsed) if isinstance(parsed, str) else parsed
         except (json.JSONDecodeError, ValueError):
             continue
     return None

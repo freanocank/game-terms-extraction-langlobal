@@ -59,17 +59,18 @@ class EmbedStore:
             return conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
 
     def _encode(self, texts: list) -> np.ndarray:
-        resp = self._client().embeddings.create(model=self.model, input=texts)
+        client = self._client()
+        try:
+            resp = client.embeddings.create(model=self.model, input=texts)
+        finally:
+            client.close()
         result = np.array([d.embedding for d in resp.data], dtype=np.float32)
         if self._dim is None:
             self._dim = result.shape[1]
         return result
 
     def _encode_batch(self, batch: list, idx: int) -> tuple:
-        client = self._client()
-        resp = client.embeddings.create(model=self.model, input=batch)
-        vec = np.array([d.embedding for d in resp.data], dtype=np.float32)
-        return idx, vec
+        return idx, self._encode(batch)
 
     def build(self, terms: list, batch_size: int = 256, progress: callable = None, workers: int = 8):
         with sqlite3.connect(self.db_path) as conn:

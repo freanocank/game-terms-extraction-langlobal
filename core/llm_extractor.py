@@ -1,189 +1,168 @@
 #!/usr/bin/env python3
-
 import asyncio
 import json
-import re
-import time
 import logging
 import threading
-import traceback
-from typing import List, Dict, Any, Optional
+import time
 from datetime import datetime
 from pathlib import Path
-from core.retry import retry_async
+
 from openai import AsyncOpenAI
 from config import EXTRACTOR_CONFIG, get_token_param_name
 from config_template import DEFAULT_API_BASE
+from core.request_cache import RequestCache, fingerprint
+from core.responses import chat_content, json_object, response_usage, validate_terms
+from core.retry import retry_async
+from core.voting import collect_llm_votes
+
 
 class LLMExtractor:
-
     def __init__(self, api_key: str, base_url: str = DEFAULT_API_BASE,
-                 base_dir: str = 'output', cache_dir: str = ''):
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=EXTRACTOR_CONFIG["timeout"], max_retries=EXTRACTOR_CONFIG["max_retries"])
+                 base_dir: str = "output", cache_dir: str = ""):
+        self.async_client = AsyncOpenAI(
+            api_key=api_key, base_url=base_url,
+            timeout=EXTRACTOR_CONFIG["timeout"], max_retries=0,
+        )
+        self.base_url = base_url.rstrip("/")
+        self._api_key = api_key
         self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(exist_ok=True)
-        session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self._exchange_log_file = self.base_dir / f'api_log_{session_ts}.jsonl'
-        self._log_fh = open(self._exchange_log_file, 'a', encoding='utf-8')
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        session_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self._exchange_log_file = self.base_dir / f"api_log_{session_ts}.jsonl"
+        self._log_fh = self._exchange_log_file.open("a", encoding="utf-8")
         self._log_lock = threading.Lock()
-        self._cache_dir = Path(cache_dir) if cache_dir else None
-        self.logger = logging.getLogger('pipeline')
+        self._cache = RequestCache(cache_dir, "extraction")
+        self._runner = asyncio.Runner()
+        self.logger = logging.getLogger("pipeline")
 
-    def _log_exchange(self, custom_id: str, messages: list, raw_content: str, usage: dict, model: str) -> None:
-        entry = {'timestamp': datetime.now().isoformat(), 'custom_id': custom_id, 'model': model, 'messages': messages, 'response': raw_content, 'usage': usage}
+    def run_sync(self, coroutine):
+        return self._runner.run(coroutine)
+
+    def close(self):
+        try:
+            self._runner.run(self.async_client.close())
+        finally:
+            self._runner.close()
+            self._log_fh.close()
+
+    def _log_exchange(self, custom_id, messages, raw_content, usage, model, error=""):
+        entry = {
+            "timestamp": datetime.now().isoformat(), "custom_id": custom_id,
+            "model": model, "messages": messages, "response": raw_content,
+            "usage": usage, "error": error,
+        }
         with self._log_lock:
-            self._log_fh.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            serialized = json.dumps(entry, ensure_ascii=False)
+            self._log_fh.write((serialized.replace(self._api_key, "***") if self._api_key else serialized) + "\n")
             self._log_fh.flush()
 
-    def _cache_path(self, custom_id: str) -> Path:
-        return self._cache_dir / f'{custom_id}.json'
-
-    def _load_cache(self, custom_id: str) -> Optional[Dict[str, Any]]:
-        if self._cache_dir is None:
-            return None
-        p = self._cache_path(custom_id)
-        if p.exists():
+    async def _process_single_text_async(self, text, custom_id, semaphore, system_prompt,
+                                         user_prompt, model, temperature, max_tokens, source_file, records=None):
+        params = self._build_api_params(system_prompt, user_prompt, model, temperature, max_tokens)
+        key = fingerprint({"schema": 3, "provider": self.base_url, "text": text, "params": params})
+        cached = self._cache.load(key)
+        if isinstance(cached, dict) and not cached.get("error"):
             try:
-                data = json.loads(p.read_text(encoding='utf-8'))
-                if data.get('custom_id') == custom_id:
-                    self.logger.info(f'[{custom_id}] cache hit')
-                    return data
-            except Exception:
+                validate_terms(cached.get("extracted_terms"))
+                if records is not None:
+                    collect_llm_votes([[{**cached, "source_file": source_file}]], {source_file: records})
+            except ValueError:
                 pass
-        return None
-
-    def _save_cache(self, custom_id: str, result: Dict[str, Any]):
-        if self._cache_dir is None:
-            return
-        try:
-            self._cache_dir.mkdir(parents=True, exist_ok=True)
-            self._cache_path(custom_id).write_text(json.dumps(result, ensure_ascii=False, default=str), encoding='utf-8')
-        except Exception as e:
-            self.logger.warning(f'[{custom_id}] cache save failed: {e}')
-
-    async def _process_single_text_async(self, text: str, custom_id: str, semaphore: asyncio.Semaphore, system_prompt: str, user_prompt: str, model: str, temperature: float, max_tokens: int, source_file: str) -> Dict[str, Any]:
-        cached = self._load_cache(custom_id)
-        if cached is not None:
-            return cached
+            else:
+                self.logger.info("[%s] cache hit", custom_id)
+                return {**cached, "custom_id": custom_id, "source_file": source_file}
         async with semaphore:
-            api_params = self._build_api_params(system_prompt, user_prompt, model, temperature, max_tokens)
-            self.logger.info(f'[{custom_id}] input={len(system_prompt)+len(user_prompt)} chars')
-            async def _req():
-                return await self.async_client.chat.completions.create(**api_params)
+            async def request():
+                return await self.async_client.chat.completions.create(**params)
             try:
-                response = await retry_async(_req, max_attempts=5, initial_delay=5.0,
-                                             tag=f"[{custom_id}]")
-            except Exception as e:
-                self.logger.error(f'[{custom_id}] failed after 5 attempts: {type(e).__name__}: {str(e)[:120]}')
-                return self._create_error_result(custom_id, model, source_file, f'{type(e).__name__}: {str(e)}')
-            try:
-                raw_content = response.choices[0].message.content
-                raw_usage = {'total_tokens': response.usage.total_tokens if response.usage else 0, 'prompt_tokens': response.usage.prompt_tokens if response.usage else 0, 'completion_tokens': response.usage.completion_tokens if response.usage else 0}
-            except Exception:
-                raw_content = str(response)
-                raw_usage = {}
-            self._log_exchange(custom_id, api_params['messages'], raw_content, raw_usage, model)
+                response = await retry_async(request, max_attempts=5, initial_delay=2, tag=f"[{custom_id}]")
+            except Exception as exc:
+                result = self._create_error_result(custom_id, model, source_file, f"{type(exc).__name__}: {exc}")
+                self._log_exchange(custom_id, params["messages"], "", {}, model, result["error"])
+                return result
             result = self._process_api_response(response, custom_id, model, source_file)
-            self._save_cache(custom_id, result)
-            return result
-
-    def _build_api_params(self, system_prompt: str, user_prompt: str, model: str, temperature: float, max_tokens: int) -> Dict[str, Any]:
-        api_params = {'model': model, 'messages': [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_prompt}], 'temperature': temperature}
-        token_param = get_token_param_name(model)
-        api_params[token_param] = max_tokens
-        return api_params
-
-    def _process_api_response(self, response, custom_id: str, model: str, source_file: str) -> Dict[str, Any]:
-        try:
-            content = response.choices[0].message.content
-            usage_info = {
-                'total_tokens': response.usage.total_tokens if response.usage else 0,
-                'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
-                'completion_tokens': response.usage.completion_tokens if response.usage else 0,
-            }
-            self.logger.debug(f'[{custom_id}] raw: {content[:200]}')
-            extracted_terms = self._parse_json_response(content)
-            result = {'custom_id': custom_id, 'extracted_terms': extracted_terms, 'usage': usage_info, 'model': response.model, 'source_file': source_file, 'created': int(time.time())}
-            self.logger.info(f'[{custom_id}] done, {usage_info["total_tokens"]} tokens')
-            return result
-        except Exception as e:
-            self.logger.error(f'[{custom_id}] response error: {type(e).__name__}: {str(e)}')
-            self.logger.debug(traceback.format_exc())
-            return self._create_error_result(custom_id, model, source_file, f'{type(e).__name__}: {str(e)}')
-
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
-        stripped = content.strip()
-        try:
-            parsed = json.loads(stripped)
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-            return self._validate_parsed_json(parsed)
-        except json.JSONDecodeError:
-            pass
-        md_match = re.search('```(?:json)?\\s*\n([\\s\\S]*?)\n\\s*```', content)
-        if md_match:
-            candidate = md_match.group(1).strip()
-            try:
-                parsed = json.loads(candidate)
-                return self._validate_parsed_json(parsed)
-            except json.JSONDecodeError:
-                pass
-        json_start = stripped.find('{')
-        if json_start == -1:
-            json_start = stripped.find('[')
-        if json_start != -1:
-            end_char = '}' if stripped[json_start] == '{' else ']'
-            json_end = stripped.rfind(end_char)
-            if json_end > json_start:
+            if records is not None and not result.get("error"):
                 try:
-                    parsed = json.loads(stripped[json_start:json_end + 1])
-                    return self._validate_parsed_json(parsed)
-                except json.JSONDecodeError:
-                    pass
-        self.logger.error(f'json_parse_failed: {content[:200]}')
-        return {'raw_content': content}
+                    collect_llm_votes([[result]], {source_file: records})
+                except ValueError as exc:
+                    result = self._create_error_result(custom_id, model, source_file, str(exc))
+            raw = str(response)
+            if getattr(response, "choices", None):
+                raw = getattr(getattr(response.choices[0], "message", None), "content", raw)
+            self._log_exchange(custom_id, params["messages"], raw, result["usage"], model, result.get("error", ""))
+            if not result.get("error"):
+                self._cache.save(key, result)
+            return result
 
-    def _validate_parsed_json(self, parsed: Any) -> Dict[str, Any]:
-        if not isinstance(parsed, dict):
-            self.logger.warning(f'non-dict response: {type(parsed)}')
-            return {'raw_content': str(parsed)}
-        if 'terms' not in parsed:
-            if len(parsed) == 1:
-                single_key, single_val = next(iter(parsed.items()))
-                if isinstance(single_val, list):
-                    self.logger.info(f"using '{single_key}' as terms")
-                    return {'terms': single_val}
-            self.logger.warning(f"missing 'terms', got keys: {list(parsed.keys())}")
-            return {'raw_content': str(parsed)}
-        return parsed
+    def _build_api_params(self, system_prompt, user_prompt, model, temperature, max_tokens):
+        return {
+            "model": model,
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": temperature, get_token_param_name(model): max_tokens,
+        }
 
-    def _create_error_result(self, custom_id: str, model: str, source_file: str, error_msg: str) -> Dict[str, Any]:
-        return {'custom_id': custom_id, 'error': error_msg, 'extracted_terms': {'raw_content': str(error_msg)}, 'usage': {'total_tokens': 0}, 'model': model, 'source_file': source_file, 'created': int(time.time())}
+    def _process_api_response(self, response, custom_id, model, source_file):
+        try:
+            terms = self._parse_json_response(chat_content(response))
+            return {
+                "custom_id": custom_id, "extracted_terms": terms, "usage": response_usage(response),
+                "model": getattr(response, "model", model), "source_file": source_file,
+                "created": int(time.time()),
+            }
+        except ValueError as exc:
+            self.logger.error("[%s] invalid response: %s", custom_id, exc)
+            return self._create_error_result(custom_id, model, source_file, str(exc))
 
-    async def run_batch_async(self, texts: List[str], system_prompt: str, user_prompts: List[str], model: str, temperature: float, max_tokens: int, max_concurrent: int, source_files: List[str], batch_id: str = '', progress: callable = None) -> List[Dict[str, Any]]:
-        semaphore = asyncio.Semaphore(max_concurrent)
-        tasks = []
-        for i, text in enumerate(texts):
-            custom_id = f'{batch_id}_t{i}' if batch_id else f'term-extraction-{i + 1}'
-            source_file = source_files[i] if source_files and i < len(source_files) else ''
-            user_prompt = user_prompts[i] if user_prompts and i < len(user_prompts) else ''
-            tasks.append(self._process_single_text_async(text=text, custom_id=custom_id, semaphore=semaphore, system_prompt=system_prompt, user_prompt=user_prompt, model=model, temperature=temperature, max_tokens=max_tokens, source_file=source_file))
-        total = len(tasks)
-        results: List[Dict[str, Any]] = []
-        for i, coro in enumerate(asyncio.as_completed(tasks), 1):
-            result = await coro
-            results.append(result)
-            self.logger.info(f'[{i}/{total}] done')
-            if progress:
-                progress(i, total)
+    def _parse_json_response(self, content):
+        return validate_terms(json_object(content))
+
+    def _create_error_result(self, custom_id, model, source_file, error_msg):
+        if self._api_key:
+            error_msg = error_msg.replace(self._api_key, "***")
+        return {
+            "custom_id": custom_id, "error": error_msg, "extracted_terms": None,
+            "usage": {"total_tokens": 0}, "model": model, "source_file": source_file,
+            "created": int(time.time()),
+        }
+
+    async def run_batch_async(self, texts, system_prompt, user_prompts, model, temperature,
+                              max_tokens, max_concurrent, source_files, batch_id="", progress=None,
+                              semaphore=None, records=None):
+        if max_concurrent < 1:
+            raise ValueError("并发数必须大于 0")
+        semaphore = semaphore if semaphore is not None else asyncio.Semaphore(max_concurrent)
+        tasks = [
+            asyncio.create_task(self._process_single_text_async(
+                text, f"{batch_id}_t{i}" if batch_id else f"term-extraction-{i + 1}",
+                semaphore, system_prompt, user_prompts[i], model, temperature, max_tokens,
+                source_files[i] if source_files else "",
+                records[i] if records is not None else None,
+            ))
+            for i, text in enumerate(texts)
+        ]
+        results = []
+        try:
+            for done, coro in enumerate(asyncio.as_completed(tasks), 1):
+                results.append(await coro)
+                if progress:
+                    progress(done, len(tasks))
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
         return results
 
-    def process_batch_concurrent(self, texts: List[str], system_prompt: str=None, user_prompts: List[str]=None, model: str='gpt-4-turbo-preview', temperature: float=0.1, max_tokens: int=4096, max_concurrent: int=10, source_files: List[str]=None, batch_id: str='') -> List[Dict[str, Any]]:
+    def process_batch_concurrent(self, texts, system_prompt=None, user_prompts=None,
+                                 model="gpt-4-turbo-preview", temperature=0.1, max_tokens=4096,
+                                 max_concurrent=10, source_files=None, batch_id=""):
         if not texts:
             return []
-        max_concurrent = min(max_concurrent, len(texts))
-        self.logger.info(f'batch_start: texts={len(texts)} concurrent={max_concurrent}')
-        results = asyncio.run(self.run_batch_async(texts=texts, system_prompt=system_prompt, user_prompts=user_prompts or [], model=model, temperature=temperature, max_tokens=max_tokens, max_concurrent=max_concurrent, source_files=source_files or [], batch_id=batch_id))
-        results.sort(key=lambda x: x.get('custom_id', ''))
-        self.logger.info(f'batch_done: {len(results)} results')
-        return results
+        try:
+            results = self.run_sync(self.run_batch_async(
+                texts, system_prompt, user_prompts or [""] * len(texts), model, temperature,
+                max_tokens, max_concurrent, source_files or [], batch_id,
+            ))
+            return sorted(results, key=lambda item: item["custom_id"])
+        finally:
+            self.close()

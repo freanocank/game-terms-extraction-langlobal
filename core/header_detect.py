@@ -28,6 +28,7 @@ from core.languages import (
     language_name,
     validate_language_pair,
 )
+from core.responses import chat_content, json_object, ResponseValidationError
 
 CACHE_FILE = Path(__file__).resolve().parent.parent / "header_cache.json"
 _CACHE_SCHEMA_VERSION = 2
@@ -247,25 +248,20 @@ def _ai_detect(
         raise HeaderDetectionError("missing_api_key", "未配置表头识别 API 密钥")
     if not base_url or not model:
         raise HeaderDetectionError("invalid_config", "表头识别服务地址或模型 ID 未配置完整")
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": _DETECT_PROMPT.format(
-            context=context, sample=sample_text, output_format=output_format
-        )}],
-        temperature=0,
-        max_tokens=256,
-    )
-    raw = (resp.choices[0].message.content or "").strip()
-    m = re.search(r"\{[^}]+\}", raw)
-    if m:
-        try:
-            parsed = json.loads(m.group())
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    raise HeaderDetectionError("invalid_response", "模型没有返回可解析的 JSON 表头映射")
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=30, max_retries=0)
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": _DETECT_PROMPT.format(
+                context=context, sample=sample_text, output_format=output_format
+            )}],
+            temperature=0, max_tokens=256,
+        )
+        return json_object(chat_content(response))
+    except ResponseValidationError as exc:
+        raise HeaderDetectionError("invalid_response", str(exc)) from exc
+    finally:
+        client.close()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -386,6 +382,21 @@ def _fallback_result(mapping: dict, exc: Exception) -> dict:
         "fallback_reason": reason,
     }
 
+
+def _preferred_mapping(df, scope, base_url, model, validator, rule_mapping):
+    cached, metadata = _cache_lookup(df, scope, base_url, model)
+    cached_result = None
+    if cached:
+        try:
+            cached_result = _cache_result(validator(cached, len(df.columns)), cached, metadata)
+        except (HeaderDetectionError, TypeError, ValueError):
+            pass
+    if cached_result and cached.get("source") in {"user", "seed"}:
+        return cached_result
+    if rule_mapping:
+        return _rule_result(validator(rule_mapping, len(df.columns)))
+    return cached_result
+
 def detect_source_column(
     df: pd.DataFrame,
     *,
@@ -398,18 +409,12 @@ def detect_source_column(
     """Detect source-file column roles and preserve a visible fallback reason."""
     source_language, target_language = validate_language_pair(source_language, target_language)
     n = len(df.columns)
-    if (source_language, target_language) != (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
-        rule_mapping = _rule_source_mapping(df, source_language, target_language)
-        if rule_mapping:
-            return _rule_result(_source_mapping(rule_mapping, n))
     file_type = _detection_scope("source", source_language, target_language)
     resolved_key, resolved_base, resolved_model = _resolve_detection_settings(api_key, base_url, model)
-    cached, metadata = _cache_lookup(df, file_type, resolved_base, resolved_model)
-    if cached:
-        try:
-            return _cache_result(_source_mapping(cached, n), cached, metadata)
-        except (HeaderDetectionError, TypeError, ValueError):
-            pass
+    rule = _rule_source_mapping(df, source_language, target_language) if file_type != "source" else None
+    preferred = _preferred_mapping(df, file_type, resolved_base, resolved_model, _source_mapping, rule)
+    if preferred:
+        return preferred
     try:
         ai = _ai_detect(
             df,
@@ -444,18 +449,12 @@ def detect_glossary_columns(
     """Detect glossary column roles and preserve a visible fallback reason."""
     source_language, target_language = validate_language_pair(source_language, target_language)
     n = len(df.columns)
-    if (source_language, target_language) != (DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE):
-        rule_mapping = _rule_glossary_mapping(df, source_language, target_language)
-        if rule_mapping:
-            return _rule_result(_glossary_mapping(rule_mapping, n))
     file_type = _detection_scope("glossary", source_language, target_language)
     resolved_key, resolved_base, resolved_model = _resolve_detection_settings(api_key, base_url, model)
-    cached, metadata = _cache_lookup(df, file_type, resolved_base, resolved_model)
-    if cached:
-        try:
-            return _cache_result(_glossary_mapping(cached, n), cached, metadata)
-        except (HeaderDetectionError, TypeError, ValueError):
-            pass
+    rule = _rule_glossary_mapping(df, source_language, target_language) if file_type != "glossary" else None
+    preferred = _preferred_mapping(df, file_type, resolved_base, resolved_model, _glossary_mapping, rule)
+    if preferred:
+        return preferred
     try:
         ai = _ai_detect(
             df,

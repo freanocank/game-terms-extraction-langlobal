@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core.main import PipelineInterruptedError, empty_glossary_bytes, run_pipeline, PipelineOpts, save_outputs
 from core.checkpoint import checkpoint_dir_name, clear as clear_checkpoint
+from core.responses import PipelineIncompleteError
 from core.languages import (
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
@@ -45,9 +46,9 @@ def _column_index(value: str) -> int:
     return parsed
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(source_required: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="游戏术语提取 CLI")
-    parser.add_argument("--source", required=True, help="源文件 xlsx")
+    parser.add_argument("--source", required=source_required, help="源文件 xlsx")
     parser.add_argument("--glossary", default="", help="已有双语术语表 xlsx（可选；不传则直接提取并翻译）")
     parser.add_argument("--source-language", "--source-lang", default=DEFAULT_SOURCE_LANGUAGE,
                         help=f"源语言 BCP 47 风格代码 (default: {DEFAULT_SOURCE_LANGUAGE})")
@@ -103,9 +104,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def options_from_args(args):
+    source_language, target_language = validate_language_pair(args.source_language, args.target_language)
+    return PipelineOpts(
+        source_language=source_language, target_language=target_language,
+        bilingual=args.bilingual, no_translate=args.no_translate,
+        src_col=args.src_col, src_en_col=args.src_en_col,
+        src_target_col=args.src_target_col, key_col=args.key_col,
+        gl_cn_col=args.gl_cn_col, gl_en_col=args.gl_en_col,
+        gl_source_col=args.gl_source_col, gl_target_col=args.gl_target_col,
+        embed_workers=args.embed_workers,
+        max_concurrent=args.concurrent, max_tokens=args.max_tokens,
+        flag_unsourced=not args.no_flag_unsourced,
+        ner_use_main=not bool(args.ner_api_key or args.ner_base_url),
+        ner_api_key=args.ner_api_key or args.api_key,
+        ner_base_url=args.ner_base_url or args.base_url,
+        ner_model=args.ner_model,
+        embedding_use_main=not bool(args.embedding_api_key or args.embedding_base_url),
+        embedding_api_key=args.embedding_api_key or args.api_key,
+        embedding_base_url=args.embedding_base_url or args.base_url,
+        embedding_model=args.embedding_model,
+    )
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    return run_with_args(args, parser)
+
+
+def run_with_args(args, parser):
 
     source_path = Path(args.source)
     if not source_path.is_file():
@@ -134,25 +162,7 @@ def main(argv=None):
     raw_dir = out_dir / "raw_data"
     ckpt_dir = args.checkpoint or f"output/_checkpoints/{checkpoint_dir_name(source_path.read_bytes(), args.profile, source_language, target_language)}"
 
-    opts = PipelineOpts(
-        source_language=source_language, target_language=target_language,
-        bilingual=args.bilingual, no_translate=args.no_translate,
-        src_col=args.src_col, src_en_col=args.src_en_col,
-        src_target_col=args.src_target_col, key_col=args.key_col,
-        gl_cn_col=args.gl_cn_col, gl_en_col=args.gl_en_col,
-        gl_source_col=args.gl_source_col, gl_target_col=args.gl_target_col,
-        embed_workers=args.embed_workers,
-        max_concurrent=args.concurrent, max_tokens=args.max_tokens,
-        flag_unsourced=not args.no_flag_unsourced,
-        ner_use_main=not bool(args.ner_api_key or args.ner_base_url),
-        ner_api_key=args.ner_api_key or args.api_key,
-        ner_base_url=args.ner_base_url or args.base_url,
-        ner_model=args.ner_model,
-        embedding_use_main=not bool(args.embedding_api_key or args.embedding_base_url),
-        embedding_api_key=args.embedding_api_key or args.api_key,
-        embedding_base_url=args.embedding_base_url or args.base_url,
-        embedding_model=args.embedding_model,
-    )
+    opts = options_from_args(args)
     def _run(glossary_path: Path):
         return run_pipeline(
             str(source_path), str(glossary_path), args.profile,
@@ -182,3 +192,6 @@ if __name__ == "__main__":
     except PipelineInterruptedError:
         print("\n任务已中断，断点已保留；使用相同参数重新运行即可继续。")
         raise SystemExit(130)
+    except PipelineIncompleteError as exc:
+        print(f"\n{exc}")
+        raise SystemExit(2)

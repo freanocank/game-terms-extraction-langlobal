@@ -28,15 +28,20 @@ sys.modules.setdefault("numpy", types.SimpleNamespace(
     frombuffer=lambda *args, **kwargs: types.SimpleNamespace(reshape=lambda *a, **k: []),
     argmax=lambda values: 0,
 ))
+class OfflineClient:
+    async def close(self):
+        pass
+
+
 sys.modules.setdefault("openai", types.SimpleNamespace(
-    AsyncOpenAI=lambda *args, **kwargs: object(),
+    AsyncOpenAI=lambda *args, **kwargs: OfflineClient(),
     OpenAI=lambda *args, **kwargs: object(),
 ))
 
 import core.main as main
 
 
-def fake_ner_scan(batch_c, api_key, base_url, model):
+def fake_ner_scan(batch_c, api_key, base_url, model, **kwargs):
     return [], []
 
 
@@ -44,7 +49,7 @@ def fake_run_batch_votes(*args, **kwargs):
     vote = {
         "custom_id": "fake",
         "extracted_terms": {
-            "terms": [{"term": "墨门", "category": "门派势力"}],
+            "terms": [{"term": "墨门", "category": "门派势力", "row_id": "row-2"}],
         },
     }
     return [[vote], [vote], [vote]]

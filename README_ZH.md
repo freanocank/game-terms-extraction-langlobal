@@ -121,7 +121,30 @@ CLI 绑定源文件 Key 列用 `--key-col <列索引>`；UI 上传后自动识�
 
 ## 断点续跑
 
-任务中断后重新上传相同文件、选相同 profile，UI 会自动检测断点并从上次位置继续。
+任务中断或必需请求失败后，重新上传相同文件、使用相同提取配置，UI 会检测断点并续跑。合法空术语结果与请求失败分开处理；失败不会被标为完成，也不会清理断点或生成成功交付文件。补译缺项会单独补请求，已完成译文可复用。
+
+断点校验源文件、列映射、语言对、Profile 内容、模型和提取规则；不兼容或缺少摘要的旧断点会被拒绝并保留。请使用新的断点目录重新提取，不要手工修改断点绕过校验。只调整提取并发、AI 补译开关或既有术语的目标译文，不会要求重新提取；新增术语原文会影响提取提示，需要新任务。
+
+同轮重复和重叠分块不增加票数：候选需要在同一来源行获得三个独立轮次支持。原生标注模板保持 8 列；完整结果另外保留行标识、全部重复出现位置和源/目标片段证据。NER 是待验证线索，失败降级会记录到运行日志，不作为强制提词名单。
+
+## 离线回归与评估
+
+```bash
+python scripts/run_offline_tests.py
+
+# 不需要密钥：人工标准表必须完整覆盖本次评估范围
+python scripts/eval.py --results output/run/results.xlsx --manual 人工标准.xlsx
+
+# 重放本版本保存的完整三轮响应；源文件、列映射和 Profile 必须与采集时一致
+python scripts/eval.py --replay output/run/raw_data/extraction --source 原文.xlsx \
+  --src-col 1 --key-col 0 --aligned-target --src-target-col 2 --manual 人工标准.xlsx
+
+# 仅 --live 会调用真实 API，处理和导出直接复用原生 CLI
+python scripts/eval.py --live --source 原文.xlsx --src-col 1 --key-col 0 \
+  --manual 人工标准.xlsx
+```
+
+`--manual-term-col` 指定人工标准的术语列，`--manual-target-col` 可另外评估标准译文一致率。离线结果评分、响应重放和在线评估分别标记，不能用模拟用例成绩代替真实提取质量。重放不重跑 NER 或 AI 补译，也不能用来证明修改 Prompt 后的效果。详细修复与验证范围见 [可靠性修复说明](docs/reliability_fix_20260907.md)。
 
 ## License
 
