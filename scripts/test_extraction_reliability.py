@@ -193,6 +193,23 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(term["source_row_id"], "row-2")
         self.assertEqual(main._aligned_target_value(term, True), "")
 
+    def test_latin_name_can_touch_han_text(self):
+        records = records_from_texts(["ZH: 她和Robin一起去见会长。 | EN: She and Robin visit the leader."])
+        reply = response([{"term": "Robin", "row_id": "row-2", "target_term": "Robin"}])
+        [candidate] = count_llm_votes(collect_llm_votes([[reply] for _ in range(3)], {"c0": records}))
+
+        self.assertEqual(candidate["term"], "Robin")
+        bind_context([candidate], records)
+        self.assertEqual(candidate["source_span"], (2, 7))
+        self.assertEqual(main._aligned_target_value(candidate, True), "Robin")
+
+    def test_invalid_word_fragment_is_not_a_valid_empty_round(self):
+        records = records_from_texts(["她和Robinson一起去见会长。"])
+        invalid = response([{"term": "Robin", "row_id": "row-2"}])
+        with self.assertRaisesRegex(ResponseValidationError, "未命中指定来源行"):
+            collect_llm_votes([[invalid]], {"c0": records})
+        self.assertEqual(collect_llm_votes([[response([])]], {"c0": records}), [])
+
     def test_unknown_row_id(self):
         raw = [[response([{"term": "墨门", "row_id": "row-999"}])] for _ in range(3)]
         with self.assertRaises(ResponseValidationError):

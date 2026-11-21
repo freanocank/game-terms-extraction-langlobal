@@ -59,7 +59,7 @@ class LLMExtractor:
     async def _process_single_text_async(self, text, custom_id, semaphore, system_prompt,
                                          user_prompt, model, temperature, max_tokens, source_file, records=None):
         params = self._build_api_params(system_prompt, user_prompt, model, temperature, max_tokens)
-        key = fingerprint({"schema": 3, "provider": self.base_url, "text": text, "params": params})
+        key = fingerprint({"schema": 5, "provider": self.base_url, "text": text, "params": params})
         cached = self._cache.load(key)
         if isinstance(cached, dict) and not cached.get("error"):
             try:

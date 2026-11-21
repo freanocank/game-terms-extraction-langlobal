@@ -7,6 +7,10 @@ import pandas as pd
 from core.languages import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE, language_name, language_tag, validate_language_pair
 
 
+_CJK = r"\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af"
+_CJK_CHAR = re.compile(rf"[{_CJK}]")
+_NON_CJK_WORD_CHAR = re.compile(rf"[^\W{_CJK}]")
+
 _VAR_RE = re.compile(r'\$\{[^}]*\}|\$[a-zA-Z_]\w*|\$\d+|\{[^}]*\}|</?[a-zA-Z][^>]*>')
 
 
@@ -31,12 +35,13 @@ def text_span(value: str, text: str):
     if not value:
         return None
     pattern = r"\s*".join(re.escape(c) for c in value if not c.isspace())
-    bounded = not re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", value)
+    bounded = not _CJK_CHAR.search(value)
     for match in re.finditer(pattern, text, re.IGNORECASE):
         start, end = match.span()
+        # A Han character can border a Latin name in source or aligned target text.
         if bounded and (
-            (start and (text[start - 1].isalnum() or text[start - 1] == "_") and value[0].isalnum())
-            or (end < len(text) and (text[end].isalnum() or text[end] == "_") and value[-1].isalnum())
+            (start and value[0].isalnum() and _NON_CJK_WORD_CHAR.fullmatch(text[start - 1]))
+            or (end < len(text) and value[-1].isalnum() and _NON_CJK_WORD_CHAR.fullmatch(text[end]))
         ):
             continue
         return start, end
